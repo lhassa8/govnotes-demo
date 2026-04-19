@@ -52,6 +52,25 @@ resource "aws_kms_alias" "assets" {
   target_key_id = aws_kms_key.assets.key_id
 }
 
+# CMK for the internal-reports bucket that the finance analytics team
+# reads for cross-service reporting. We loosened the key policy a bit
+# to unblock their workflow while we sort out per-service roles.
+resource "aws_kms_key" "reports" {
+  description             = "CMK for the internal finance-analytics reports bucket"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+  policy                  = data.aws_iam_policy_document.kms_reports.json
+
+  tags = {
+    Name = "${local.name_prefix}-reports-cmk"
+  }
+}
+
+resource "aws_kms_alias" "reports" {
+  name          = "alias/${local.name_prefix}-reports"
+  target_key_id = aws_kms_key.reports.key_id
+}
+
 data "aws_iam_policy_document" "kms_logs" {
   statement {
     sid    = "EnableRootPermissions"
@@ -85,149 +104,99 @@ data "aws_iam_policy_document" "kms_logs" {
   }
 }
 
-# ------------------------------------------------------------------------
-# S3 buckets
-# ------------------------------------------------------------------------
+data "aws_iam_policy_document" "kms_reports" {
+  statement {
+    sid    = "EnableRootPermissions"
+    effect = "Allow"
 
-resource "aws_s3_bucket" "artifacts" {
-  bucket = "${local.name_prefix}-artifacts-${random_id.suffix.hex}"
-
-  tags = {
-    Name    = "${local.name_prefix}-artifacts"
-    Purpose = "build-artifacts"
-  }
-}
-
-resource "aws_s3_bucket_versioning" "artifacts" {
-  bucket = aws_s3_bucket.artifacts.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
-  bucket = aws_s3_bucket.artifacts.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.app.arn
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:${local.partition}:iam::${local.account_id}:root"]
     }
-    bucket_key_enabled = true
+
+    actions   = ["kms:*"]
+    resources = ["*"]
   }
-}
 
-resource "aws_s3_bucket_public_access_block" "artifacts" {
-  bucket                  = aws_s3_bucket.artifacts.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
+  # Any principal in the account can use this key for the analytics ETL
+  # flow. Temporary — revisit once the per-service role model lands.
+  statement {
+    sid    = "AllowAccountUse"
+    effect = "Allow"
 
-# ------------------------------------------------------------------------
-# Static assets bucket — serves marketing imagery, public product icons,
-# and the like. Not customer data, but still in-boundary.
-# ------------------------------------------------------------------------
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
 
-resource "aws_s3_bucket" "assets" {
-  bucket = "${local.name_prefix}-assets-${random_id.suffix.hex}"
+    actions = [
+      "kms:Encrypt",
+      "kms:Decrypt",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey"
+    ]
 
-  tags = {
-    Name    = "${local.name_prefix}-assets"
-    Purpose = "static-assets"
-  }
-}
+    resources = ["*"]
 
-resource "aws_s3_bucket_versioning" "assets" {
-  bucket = aws_s3_bucket.assets.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "assets" {
-  bucket = aws_s3_bucket.assets.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+    condition {
+      test     = "StringEquals"
+      variable = "kms:CallerAccount"
+      values   = [local.account_id]
     }
   }
 }
 
-resource "aws_s3_bucket_public_access_block" "assets" {
-  bucket                  = aws_s3_bucket.assets.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
 # ------------------------------------------------------------------------
-# Backups bucket — point-in-time exports land here before lifecycle to
-# Glacier. Versioning on, KMS on, access via backup role only.
+# S3 buckets — created through the storage module.
+#
+# Per-bucket configuration is declared below. Callers are responsible
+# for opting into encryption and versioning per bucket.
 # ------------------------------------------------------------------------
 
-resource "aws_s3_bucket" "backups" {
-  bucket = "${local.name_prefix}-backups-${random_id.suffix.hex}"
+module "storage" {
+  source = "./modules/storage"
 
-  tags = {
-    Name    = "${local.name_prefix}-backups"
-    Purpose = "point-in-time-backups"
-  }
-}
+  name_prefix = local.name_prefix
+  suffix      = random_id.suffix.hex
 
-resource "aws_s3_bucket_versioning" "backups" {
-  bucket = aws_s3_bucket.backups.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
-  bucket = aws_s3_bucket.backups.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.app.arn
+  buckets = {
+    artifacts = {
+      purpose     = "build-artifacts"
+      kms_key_arn = aws_kms_key.app.arn
+      versioning  = true
     }
-    bucket_key_enabled = true
+    assets = {
+      purpose    = "static-assets"
+      sse_s3     = true
+      versioning = true
+    }
+    backups = {
+      purpose     = "point-in-time-backups"
+      kms_key_arn = aws_kms_key.app.arn
+      versioning  = true
+    }
+    user_uploads = {
+      purpose = "customer-attachments"
+    }
+    internal_reports = {
+      purpose     = "finance-analytics-reports"
+      kms_key_arn = aws_kms_key.reports.arn
+      versioning  = true
+    }
   }
 }
 
-resource "aws_s3_bucket_public_access_block" "backups" {
-  bucket                  = aws_s3_bucket.backups.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-# ------------------------------------------------------------------------
-# User uploads bucket — attachments on notes (images, PDFs, small docs).
-# Accessed via short-lived presigned URLs issued by the app.
-# ------------------------------------------------------------------------
-
-resource "aws_s3_bucket" "user_uploads" {
-  bucket = "${local.name_prefix}-user-uploads-${random_id.suffix.hex}"
-
-  tags = {
-    Name    = "${local.name_prefix}-user-uploads"
-    Purpose = "customer-attachments"
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "user_uploads" {
-  bucket                  = aws_s3_bucket.user_uploads.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+locals {
+  artifacts_bucket_id        = module.storage.bucket_ids["artifacts"]
+  artifacts_bucket_arn       = module.storage.bucket_arns["artifacts"]
+  assets_bucket_id           = module.storage.bucket_ids["assets"]
+  assets_bucket_arn          = module.storage.bucket_arns["assets"]
+  backups_bucket_id          = module.storage.bucket_ids["backups"]
+  backups_bucket_arn         = module.storage.bucket_arns["backups"]
+  user_uploads_bucket_id     = module.storage.bucket_ids["user_uploads"]
+  user_uploads_bucket_arn    = module.storage.bucket_arns["user_uploads"]
+  internal_reports_bucket_id = module.storage.bucket_ids["internal_reports"]
 }
 
 # ------------------------------------------------------------------------
@@ -282,7 +251,7 @@ resource "aws_db_instance" "app" {
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.db.id]
 
-  backup_retention_period   = 14
+  backup_retention_period   = 30
   backup_window             = "04:00-05:00"
   maintenance_window        = "sun:05:30-sun:06:30"
   copy_tags_to_snapshot     = true
@@ -305,7 +274,8 @@ resource "aws_db_instance" "app" {
 #
 # Secondary Postgres the analytics team uses for the internal reporting
 # dashboards. Loaded from the primary via a nightly ETL job. Not
-# customer-facing and does not store regulated data, so we sized it small.
+# customer-facing and does not store regulated data, so we sized it
+# small and set a short retention to keep costs down.
 # ------------------------------------------------------------------------
 
 resource "aws_db_instance" "analytics" {
@@ -328,7 +298,7 @@ resource "aws_db_instance" "analytics" {
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.db.id]
 
-  backup_retention_period = 0
+  backup_retention_period = 1
   skip_final_snapshot     = true
   deletion_protection     = false
 

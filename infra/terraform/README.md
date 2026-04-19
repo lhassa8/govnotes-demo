@@ -4,8 +4,10 @@ This is the Terraform for the `govnotes-fedramp-prod` AWS account.
 
 ## Layout
 
-Flat file layout on purpose. The boundary is small enough that splitting
-into per-service modules would be premature.
+Mostly flat file layout. The boundary is small enough that heavy
+modularization would be premature. The one extraction we've made is
+the `storage` module under `modules/` — it owns the S3 buckets we
+iterate over with `for_each`. Other resource groups live inline.
 
 | File | What it holds |
 |------|---------------|
@@ -14,11 +16,12 @@ into per-service modules would be premature.
 | `main.tf` | Provider config, default tags, account-wide data sources. |
 | `network.tf` | VPC, subnets, route tables, NAT, security groups. |
 | `compute.tf` | ECS cluster, app service, task definitions, bastion. |
-| `data.tf` | KMS keys, S3 buckets, RDS instances. |
+| `data.tf` | KMS keys, the `storage` module call, RDS instances. |
 | `iam.tf` | Roles, groups, policies, and the legacy CI user. |
 | `logging.tf` | CloudTrail, the audit log bucket, VPC flow logs. |
 | `loadbalancer.tf` | ALB, target groups, listeners. |
 | `backups.tf` | AWS Backup vault and plan. |
+| `modules/storage/` | S3 buckets created via `for_each`. |
 
 ## Running
 

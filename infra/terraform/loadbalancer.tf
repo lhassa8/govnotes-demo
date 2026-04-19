@@ -9,7 +9,7 @@ resource "aws_lb" "app" {
   enable_deletion_protection = true
 
   access_logs {
-    bucket  = aws_s3_bucket.backups.id
+    bucket  = local.backups_bucket_id
     prefix  = "alb-access-logs"
     enabled = true
   }

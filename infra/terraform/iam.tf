@@ -93,8 +93,8 @@ data "aws_iam_policy_document" "app_task" {
       "s3:ListBucket"
     ]
     resources = [
-      aws_s3_bucket.user_uploads.arn,
-      "${aws_s3_bucket.user_uploads.arn}/*"
+      local.user_uploads_bucket_arn,
+      "${local.user_uploads_bucket_arn}/*"
     ]
   }
 
@@ -106,8 +106,8 @@ data "aws_iam_policy_document" "app_task" {
       "s3:ListBucket"
     ]
     resources = [
-      aws_s3_bucket.assets.arn,
-      "${aws_s3_bucket.assets.arn}/*"
+      local.assets_bucket_arn,
+      "${local.assets_bucket_arn}/*"
     ]
   }
 
