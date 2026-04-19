@@ -235,6 +235,74 @@ resource "aws_iam_group_policy_attachment" "readonly_auditor" {
 }
 
 # ------------------------------------------------------------------------
+# Data-ops role
+#
+# Assumed by the data team from their managed EC2 workstations for
+# cross-account ETL runs and backfills. MFA is required for the
+# destructive side of the policy. Reads and writes are permitted
+# without MFA so the team can drive scripted backfills; the federation
+# rollout will tighten this later.
+# ------------------------------------------------------------------------
+
+resource "aws_iam_role" "data_ops" {
+  name = "${local.name_prefix}-data-ops"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        AWS = "arn:${local.partition}:iam::${local.account_id}:root"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+data "aws_iam_policy_document" "data_ops" {
+  statement {
+    sid    = "DataOpsReadWrite"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:ListBucket",
+      "s3:PutObject",
+      "rds:Describe*",
+      "rds:ListTagsForResource"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "DataOpsDestructiveRequiresMfa"
+    effect = "Allow"
+    actions = [
+      "s3:DeleteObject",
+      "s3:DeleteBucket",
+      "rds:DeleteDBInstance",
+      "rds:DeleteDBSnapshot"
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "Bool"
+      variable = "aws:MultiFactorAuthPresent"
+      values   = ["true"]
+    }
+  }
+}
+
+resource "aws_iam_policy" "data_ops" {
+  name   = "${local.name_prefix}-data-ops"
+  policy = data.aws_iam_policy_document.data_ops.json
+}
+
+resource "aws_iam_role_policy_attachment" "data_ops" {
+  role       = aws_iam_role.data_ops.name
+  policy_arn = aws_iam_policy.data_ops.arn
+}
+
+# ------------------------------------------------------------------------
 # CI deploy user
 #
 # Used by the legacy Jenkins pipeline that still pushes Terraform plans

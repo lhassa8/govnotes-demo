@@ -94,9 +94,10 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
 # ------------------------------------------------------------------------
 # CloudTrail
 #
-# Captures management events for the FedRAMP account. We stood this up
-# single-region because the FedRAMP boundary is us-east-1 only today.
-# Revisit multi-region once we enable cross-region replication for DR.
+# Captures management events across all regions. Data events for S3
+# and Lambda are deferred to the Q2 cost review; log-file validation
+# is pending the SIEM pipeline work. Once the SIEM integration ships
+# we'll flip validation on and add the data-event selectors.
 # ------------------------------------------------------------------------
 
 resource "aws_cloudtrail" "main" {
@@ -104,7 +105,7 @@ resource "aws_cloudtrail" "main" {
   s3_bucket_name = aws_s3_bucket.cloudtrail.id
 
   include_global_service_events = true
-  is_multi_region_trail         = false
+  is_multi_region_trail         = true
   enable_log_file_validation    = false
 
   kms_key_id = aws_kms_key.logs.arn
