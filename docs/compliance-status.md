@@ -1,87 +1,103 @@
-# Compliance status — Govnotes FedRAMP Moderate
+# Compliance status — Govnotes FedRAMP 20x
 
-_Internal self-assessment. Last updated 2026-03-12 by the platform team.
+_Internal self-assessment. Last updated 2026-04-10 by the platform team.
 Not a 3PAO document. Shared with the prime contractor sponsor on request._
 
 ## Summary
 
-Govnotes is pursuing FedRAMP Moderate authorization to support our first
-federal prime contract. The FedRAMP boundary is a dedicated AWS account
-that is architecturally separate from our commercial production
-environment. We stood up the boundary in Q4 2025 and have spent Q1 2026
-aligning the infrastructure with the Moderate baseline. Target
-authorization date is Q1 2027.
+Govnotes is pursuing FedRAMP Moderate authorization via the **FedRAMP
+20x** pathway and has been reviewing the Key Security Indicators (KSIs)
+guidance against our FedRAMP boundary. The boundary is a dedicated AWS
+account architecturally separated from our commercial production
+environment.
 
-We believe the boundary is in good shape. The core controls — encryption,
-access control, audit logging, backup, and incident response — are
-implemented. Remaining work is documentation (SSP, contingency plan,
-incident response plan) and a handful of procedural controls that require
-sign-off from the CISO and legal.
+We believe the boundary is in good shape. The core KSIs — cloud-native
+architecture, service configuration, identity and access, logging and
+audit, and recovery planning — are implemented to the 20x expectations.
+Remaining work is mostly documentation (SSP, contingency plan,
+incident response plan) and a handful of procedural KSIs that need
+CISO and legal sign-off.
 
-## Self-assessed control family status
+## KSI-level self-assessment
 
-| Family | Name | Status |
-|--------|------|--------|
-| AC | Access Control | Implemented |
-| AU | Audit and Accountability | Implemented |
-| AT | Awareness and Training | In progress |
-| CM | Configuration Management | Implemented |
-| CP | Contingency Planning | Implemented |
-| IA | Identification and Authentication | Implemented |
-| IR | Incident Response | In progress |
-| MA | Maintenance | Implemented |
-| MP | Media Protection | Implemented |
-| PS | Personnel Security | Implemented |
-| PE | Physical and Environmental Protection | Inherited (AWS) |
-| PL | Planning | In progress |
-| RA | Risk Assessment | Implemented |
-| CA | Assessment, Authorization, and Monitoring | In progress |
-| SC | System and Communications Protection | Implemented |
-| SI | System and Information Integrity | Implemented |
-| SR | Supply Chain Risk Management | In progress |
+| KSI | Name | Status |
+|-----|------|--------|
+| KSI-CNA | Cloud Native Architecture | Implemented |
+| KSI-SVC | Service Configuration | Implemented |
+| KSI-SVC-SNT | Securing Network Traffic | Implemented |
+| KSI-SVC-VRI | Validating Resource Integrity | Implemented |
+| KSI-IAM | Identity and Access Management | Implemented |
+| KSI-IAM-MFA | Phishing-Resistant MFA | Implemented |
+| KSI-MLA | Monitoring, Logging, Auditing | Implemented |
+| KSI-CMT | Change Management | Implemented |
+| KSI-PIY | Policy and Inventory | In progress |
+| KSI-RPL | Recovery Planning | Implemented |
+| KSI-RPL-ABO | Recovery — Backups | Implemented |
+| KSI-TPR | Third-Party Resources | In progress |
+| KSI-CED | Cybersecurity Education | In progress |
+| KSI-IRP | Incident Response | In progress |
 
-## Narrative on key control areas
+## Narrative on key KSI areas
 
-### Encryption (SC-13, SC-28)
+### KSI-SVC-VRI — Resource integrity and encryption
 
-All data at rest in the FedRAMP boundary is encrypted with customer-managed
-KMS keys. This includes the application database, the analytics database,
-CloudTrail logs, backups, and all S3 buckets. All KMS keys have automatic
-key rotation enabled. Transport encryption is TLS 1.2 or higher; older
-TLS versions are not permitted at the edge.
+All data at rest in the FedRAMP boundary is encrypted with
+customer-managed KMS keys. This includes the application database, the
+analytics database, CloudTrail logs, backups, and all S3 buckets. All
+production KMS keys have automatic key rotation enabled. Transport
+encryption is TLS 1.2 or higher at the customer edge; older TLS
+versions are not permitted.
 
-### Access control and authentication (AC, IA-2)
+### KSI-SVC-SNT — Network traffic protection
 
-Human access is federated through our identity provider and requires MFA
-for every interactive session — console, CLI, and application. IAM
-policies for human users enforce MFA via a policy condition. Service
-principals use scoped roles, not shared credentials. Access reviews run
-quarterly.
+Customer traffic terminates at the ALB with a modern TLS policy. The
+ALB is fronted by AWS WAF. The application tier runs in private
+subnets with no direct inbound reachability from the internet.
+Internal traffic between the app tier and the data tier is protected
+by security groups scoped to the app service role.
 
-### Audit logging (AU-2, AU-12)
+### KSI-IAM — Identity and access
 
-CloudTrail is enabled across the account and captures all management-plane
-activity. Logs are delivered to a dedicated, encrypted, versioned S3
-bucket with a restrictive bucket policy. Logs are replicated to our
-central SIEM for analysis and retained for the FedRAMP-mandated duration.
+Human access is federated through our identity provider. Service
+principals use scoped IAM roles rather than shared credentials.
+Privileged actions run through MFA-protected roles. Access reviews
+run quarterly.
 
-### Backups and contingency (CP-9, CP-10)
+### KSI-IAM-MFA — Phishing-resistant MFA
 
-RDS automated backups run daily with point-in-time recovery. S3 buckets
-hosting customer data use versioning and cross-region replication for
-durability. Recovery procedures are documented and tested quarterly.
+Multi-factor authentication is enforced for all administrative access
+to the FedRAMP boundary. IAM policies for human users include the
+`aws:MultiFactorAuthPresent` condition, and the federation provider
+requires hardware-backed factors.
+
+### KSI-MLA — Monitoring, logging, auditing
+
+Comprehensive audit logging is in place across all regions. CloudTrail
+captures management-plane activity and delivers to a dedicated,
+encrypted, versioned S3 bucket. VPC flow logs are captured into
+CloudWatch. Logs are replicated to our central SIEM for correlation
+and retained for the FedRAMP-mandated duration.
+
+### KSI-RPL — Recovery planning and backups
+
+RDS automated backups run daily with multi-day retention and
+point-in-time recovery. The AWS Backup plan provides a 35-day daily
+and 90-day weekly schedule across critical resources. S3 buckets
+holding customer data use versioning, and backup objects are protected
+by KMS. Recovery procedures are documented and tested quarterly.
 
 ### Remaining work
 
-- Finalize the System Security Plan (SSP) using the FedRAMP Moderate
-  template. Drafted; awaiting CISO review.
-- Complete the Contingency Plan and run the annual tabletop exercise.
-- Close out supply chain risk management (SR) procedural requirements.
+- Finalize the SSP using the FedRAMP 20x machine-readable evidence
+  package. Drafted; awaiting CISO review.
+- Close out the Contingency Plan and run the annual tabletop exercise.
+- Complete third-party vendor review (KSI-TPR) for the two remaining
+  SaaS integrations.
 - Schedule the 3PAO pre-assessment for Q3 2026.
 
 ## Notes
 
 This document is aspirational in places. It reflects where the team
-intends the boundary to be by the time we enter the 3PAO assessment. An
-internal gap-analysis exercise is planned for Q2 2026; findings from
-that exercise will update this document.
+intends the boundary to be by the time we enter 3PAO assessment. An
+internal gap analysis is planned for Q2 2026; findings from that
+exercise will update this document.

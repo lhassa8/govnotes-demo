@@ -8,16 +8,22 @@ of the Govnotes platform.
 This boundary runs in a dedicated AWS account, separate from the commercial
 production environment that serves our SaaS customers today. The code here
 is in active development as part of our FedRAMP Moderate authorization
-effort, with a target authorization date of Q1 2027.
+effort, which we are pursuing via the **FedRAMP 20x** pathway. We are
+building evidence toward the 20x Key Security Indicators (KSIs) and
+expect to enter 3PAO assessment in Q1 2027.
 
 ## Repository layout
 
 ```
 govnotes/
-├── app/                Node.js / Express application source
-├── infra/terraform/    Terraform for the FedRAMP AWS account
-├── docs/               Architecture and compliance documentation
-└── .github/workflows/  CI: lint, test, terraform fmt + validate
+├── app/                       Node.js / Express application source
+├── infra/terraform/           Terraform for the FedRAMP prod boundary
+├── infra/terraform/modules/   Shared modules (storage)
+├── infra/environments/staging Staging — NOT in the FedRAMP boundary
+├── docs/                      Architecture and compliance docs
+├── CHANGELOG.md               Running changelog for the boundary
+├── DELIBERATE_GAPS.md         Ground-truth list of known gaps
+└── .github/workflows/         CI: lint, test, terraform fmt + validate
 ```
 
 ## What Govnotes the product does
@@ -72,7 +78,9 @@ through the change-management process documented on the engineering wiki.
 - [`docs/architecture.md`](docs/architecture.md) — high-level architecture
   of the FedRAMP boundary.
 - [`docs/compliance-status.md`](docs/compliance-status.md) — our internal
-  self-assessment of where we stand against FedRAMP Moderate controls.
+  self-assessment, structured around the FedRAMP 20x KSIs.
+- [`CHANGELOG.md`](CHANGELOG.md) — running log of changes to the
+  boundary, including known follow-ups.
 
 ## License
 
