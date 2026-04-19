@@ -282,12 +282,12 @@ resource "aws_db_instance" "app" {
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.db.id]
 
-  backup_retention_period = 14
-  backup_window           = "04:00-05:00"
-  maintenance_window      = "sun:05:30-sun:06:30"
-  copy_tags_to_snapshot   = true
-  deletion_protection     = true
-  skip_final_snapshot     = false
+  backup_retention_period   = 14
+  backup_window             = "04:00-05:00"
+  maintenance_window        = "sun:05:30-sun:06:30"
+  copy_tags_to_snapshot     = true
+  deletion_protection       = true
+  skip_final_snapshot       = false
   final_snapshot_identifier = "${local.name_prefix}-app-db-final"
 
   performance_insights_enabled    = true
