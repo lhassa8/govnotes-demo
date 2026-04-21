@@ -1,0 +1,73 @@
+name: efterlev-scan
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/terraform/**'
+      - '.github/workflows/efterlev-scan.yml'
+  pull_request:
+    # `pull_request` (not `pull_request_target`) — GitHub withholds secrets
+    # from workflows triggered by forks, which is what we want.
+    paths:
+      - 'infra/terraform/**'
+      - '.github/workflows/efterlev-scan.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: efterlev scan + agents
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out govnotes-demo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Efterlev from private repo
+        env:
+          GH_TOKEN: ${{ secrets.EFTERLEV_INSTALL_TOKEN }}
+        run: |
+          pip install --upgrade pip
+          pip install "git+https://x-access-token:${GH_TOKEN}@github.com/lhassa8/Efterlev.git@main"
+          efterlev --version
+
+      - name: efterlev init
+        run: efterlev init --target infra/terraform
+
+      - name: efterlev scan
+        run: efterlev scan --target infra/terraform
+
+      - name: efterlev agent gap
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: efterlev agent gap --target infra/terraform
+
+      - name: efterlev agent document
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: efterlev agent document --target infra/terraform
+
+      - name: Upload gap report HTML + provenance store
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: efterlev-run-${{ github.run_number }}
+          path: |
+            infra/terraform/.efterlev/reports/
+            infra/terraform/.efterlev/store.db
+            infra/terraform/.efterlev/receipts.log
+          retention-days: 30
+          if-no-files-found: warn
