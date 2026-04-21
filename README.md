@@ -10,7 +10,7 @@ production environment that serves our SaaS customers today. The code here
 is in active development as part of our FedRAMP Moderate authorization
 effort, which we are pursuing via the **FedRAMP 20x** pathway. We are
 building evidence toward the 20x Key Security Indicators (KSIs) and
-expect to enter 3PAO assessment in Q1 2027.  .
+expect to enter 3PAO assessment in Q1 2027.
 
 ## Repository layout
 
@@ -23,7 +23,7 @@ govnotes/
 ├── docs/                      Architecture and compliance docs
 ├── CHANGELOG.md               Running changelog for the boundary
 ├── DELIBERATE_GAPS.md         Ground-truth list of known gaps
-└── .github/workflows/         CI: lint, test, terraform fmt + validate
+└── .github/workflows/         CI: app tests, Terraform checks, compliance scan
 ```
 
 ## What Govnotes the product does
