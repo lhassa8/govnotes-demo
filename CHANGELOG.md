@@ -13,6 +13,16 @@ it is not the system of record for compliance evidence — see
 
 ## 2026-04
 
+- **2026-04-30** — Expanded `DELIBERATE_GAPS.md` from 12 entries to
+  21, hitting 6 new FedRAMP 20x KSIs across previously-uncovered
+  themes (CNA, expanded MLA, expanded IAM, SVC retention, RPL
+  testing, MLA-EVC). Most of the new entries document capability
+  surfaces that don't yet exist in this codebase rather than
+  misconfigurations on resources that do; the `legacy_break_glass`
+  role with AdministratorAccess in `iam.tf` is the single new
+  resource. Refreshed `.github/workflows/efterlev-scan.yml` to
+  install Efterlev from PyPI (`pipx install efterlev`) and run the
+  unified `efterlev report run` pipeline.
 - **2026-04-10** — Promoted the staging environment out of the main
   Terraform root and into `infra/environments/staging/`. Staging is
   explicitly not in the FedRAMP authorization boundary; see the staging
