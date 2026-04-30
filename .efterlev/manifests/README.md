@@ -5,6 +5,12 @@ for FedRAMP 20x KSIs whose evidence is not observable from the Terraform
 scanner alone. Each `*.yml` file binds to exactly one KSI and contains one
 or more attestation entries.
 
+This directory lives at `<repo>/.efterlev/manifests/` because that's where
+Efterlev's manifest loader looks when the scan target is the repo root.
+Govnotes' Efterlev workflow scans from root (`efterlev report run --target .`)
+so it picks up Terraform under `infra/terraform/`, GitHub workflows under
+`.github/workflows/`, AND these manifests in a single pass.
+
 The manifest loader (Efterlev's `load_evidence_manifests` primitive) reads
 every `.yml` file under this directory at scan time, validates each against
 the manifest schema, and emits one `Evidence` record per attestation with

@@ -1,22 +1,31 @@
 name: efterlev-scan
 
 # Runs Efterlev's full compliance pipeline (init → scan → agent gap →
-# agent document → poam) against this repository's Terraform on every
-# push to main and every PR touching infra. Uploads the full
-# `.efterlev/reports/` artifact for download from the Actions tab.
+# agent document → poam) against this repository on every push to main
+# and every PR touching infra, the workflow files themselves, or the
+# Evidence Manifests. Uploads the full `.efterlev/reports/` artifact for
+# download from the Actions tab.
+#
+# Scan target is the repo root (`.`) — Efterlev rglob-walks `*.tf` from
+# there (catches `infra/terraform/`), reads `.github/workflows/*.yml`
+# for the github-source detectors, and loads `.efterlev/manifests/*.yml`
+# for procedural KSI attestations. Scoping the target to `infra/terraform/`
+# would skip the workflow detectors and the manifests.
 
 on:
   push:
     branches: [main]
     paths:
       - 'infra/terraform/**'
-      - '.github/workflows/efterlev-scan.yml'
+      - '.github/workflows/**'
+      - '.efterlev/manifests/**'
   pull_request:
     # `pull_request` (not `pull_request_target`) — GitHub withholds secrets
     # from workflows triggered by forks, which is what we want.
     paths:
       - 'infra/terraform/**'
-      - '.github/workflows/efterlev-scan.yml'
+      - '.github/workflows/**'
+      - '.efterlev/manifests/**'
   workflow_dispatch:
 
 concurrency:
@@ -61,7 +70,7 @@ jobs:
         # the run log; we don't gate on this step.
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: efterlev doctor --target infra/terraform || true
+        run: efterlev doctor --target . || true
 
       - name: efterlev report run
         # One command runs the full pipeline: init → scan → agent gap
@@ -69,7 +78,7 @@ jobs:
         # explicitly below for the canonical KSI-SVC-VRI showcase).
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: efterlev report run --target infra/terraform
+        run: efterlev report run --target .
 
       - name: efterlev agent remediate (showcase)
         # Demonstrates the remediation flow on the canonical "missing
@@ -78,7 +87,7 @@ jobs:
         # below; nothing is applied to the codebase.
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: efterlev agent remediate --ksi KSI-SVC-VRI --target infra/terraform
+        run: efterlev agent remediate --ksi KSI-SVC-VRI --target .
 
       - name: Upload reports + provenance store
         if: always()
@@ -86,9 +95,9 @@ jobs:
         with:
           name: efterlev-run-${{ github.run_number }}
           path: |
-            infra/terraform/.efterlev/reports/
-            infra/terraform/.efterlev/store.db
-            infra/terraform/.efterlev/receipts.log
-            infra/terraform/.efterlev/redactions/
+            .efterlev/reports/
+            .efterlev/store.db
+            .efterlev/receipts.log
+            .efterlev/redactions/
           retention-days: 30
           if-no-files-found: warn
