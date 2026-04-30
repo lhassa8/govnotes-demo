@@ -64,6 +64,16 @@ jobs:
           which efterlev
           pipx list | grep efterlev || true
 
+      - name: efterlev init
+        # `report run` skips init if `.efterlev/` already exists, but
+        # the workspace dir is half-present in this repo (manifests are
+        # committed under `.efterlev/manifests/`; the FRMR cache is
+        # gitignored). `--force` regenerates the cache without
+        # touching manifests. (Tracked upstream as an Efterlev v0.1.x
+        # heuristic-fix item: `report run` should detect the cache,
+        # not the dir.)
+        run: efterlev init --target . --force
+
       - name: efterlev doctor
         # Pre-flight diagnostics — Python, workspace, FRMR cache,
         # ANTHROPIC_API_KEY shape. No network calls. Output is for
@@ -73,9 +83,9 @@ jobs:
         run: efterlev doctor --target . || true
 
       - name: efterlev report run
-        # One command runs the full pipeline: init → scan → agent gap
-        # → agent document → poam. Skips agent remediate (we run that
-        # explicitly below for the canonical KSI-SVC-VRI showcase).
+        # Full pipeline: scan → agent gap → agent document → poam.
+        # Init was handled explicitly above; report run detects the
+        # workspace and skips its own init step.
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: efterlev report run --target .
