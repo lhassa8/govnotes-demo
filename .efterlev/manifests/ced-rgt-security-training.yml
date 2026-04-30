@@ -1,0 +1,25 @@
+ksi: KSI-CED-RGT
+name: Role-based General Training
+evidence:
+  - type: attestation
+    statement: >
+      All Govnotes employees and contractors with access to the FedRAMP
+      production environment complete the role-based security awareness
+      training program annually. Curriculum is delivered through
+      KnowBe4, scoped per-role (engineer, support, operations,
+      executive), and includes phishing-simulation tests run quarterly
+      with remediation training assigned to anyone who clicks. Training
+      completion is tracked in our HRIS (Rippling); access to the
+      FedRAMP boundary is gated on completion-current status enforced
+      via our IdP group membership review run by the platform-security
+      team monthly. The 2026 annual cycle completed 2026-03-31 with
+      100% completion rate (47/47 in-scope personnel); the prior cycle
+      (2025-03-28) was also at 100%.
+    attested_by: cso@govnotes.fed
+    attested_at: 2026-04-01
+    reviewed_at: 2026-04-01
+    next_review: 2027-04-01
+    supporting_docs:
+      - ./docs/policies/security-training-program.pdf
+      - ./docs/reports/training-completion-2026q1.pdf
+      - https://hris.govnotes.fed/reports/training-status

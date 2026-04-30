@@ -582,6 +582,101 @@ at the IaC layer.
 
 ---
 
+## CI / supply-chain gaps — `.github/workflows/*.yml`
+
+Efterlev's GitHub-workflow detectors read the same way Terraform-source
+detectors do — each `.github/workflows/*.yml` file is a "resource" and
+each `uses:` step is inspected for security-relevant signals. The gaps
+below are observable from `.github/workflows/{ci,terraform-check,
+efterlev-scan}.yml` as they currently sit in this repo.
+
+### 22. Third-party GitHub Actions are pinned to mutable tags, not commit SHAs
+
+- **File:** `.github/workflows/ci.yml`,
+  `.github/workflows/terraform-check.yml`,
+  `.github/workflows/efterlev-scan.yml`. Every `uses:` reference
+  uses a major-version tag (`@v3`, `@v4`, `@v5`) rather than a 40-hex
+  commit SHA.
+- **KSI:** KSI-SCR-MIT (Mitigating Supply Chain Risk).
+- **800-53 controls:** SR-5, SI-7(1).
+- **Classification:** Not implemented.
+- **What's present:** Workflows use named, well-known third-party
+  actions (`actions/checkout`, `actions/setup-python`,
+  `hashicorp/setup-terraform`).
+- **What's missing:** Immutability. A compromised tag (the
+  attack pattern that landed `tj-actions/changed-files@v44` malware
+  in early 2025) re-points the action to attacker-controlled code on
+  the next workflow run; SHA-pinning prevents that by tying the
+  reference to a specific commit's content hash.
+- **Why this happens in real teams:** Floating-tag is the default in
+  every action's README. SHA pinning requires a tooling layer
+  (Dependabot's github-actions ecosystem opens PRs for SHA bumps;
+  without it, the team has to maintain SHAs by hand).
+- **Fix:** Replace each `@vN` with `@<full-40-hex-sha>` and a trailing
+  `# vN` comment for human readability. Enable the `github-actions`
+  Dependabot ecosystem in a `.github/dependabot.yml` so updates land
+  as reviewable PRs.
+- **Efterlev detector:** `github.action_pinning`.
+
+### 23. No SBOM-generation or vulnerability-scanning step in CI
+
+- **File:** None. None of the three workflows runs `syft`, `grype`,
+  `trivy`, `osv-scanner`, `cargo audit`, `npm audit`, `pip-audit`,
+  `dependency-check`, or any equivalent scanner.
+- **KSI:** KSI-SCR-MON (Monitoring Supply Chain Risk).
+- **800-53 controls:** RA-5, SR-3.
+- **Classification:** Not implemented.
+- **What's present:** Per-language test runners (`npm test` for the
+  app, `terraform validate` for the infra). Lint passes in CI.
+- **What's missing:** Automated supply-chain monitoring. CVEs in
+  upstream dependencies (Node packages, Terraform providers, base
+  images) reach `main` undetected. KSI-SCR-MON specifically asks for
+  *automated monitoring of third-party software for upstream
+  vulnerabilities*; manual review at upgrade time doesn't qualify.
+- **Why this happens in real teams:** SCA tooling has fragmented in
+  the last two years (`trivy`, `grype`, `osv-scanner`, `dependency-
+  track` all overlap differently); teams defer the choice and ship
+  without one.
+- **Fix:** Add a `scan` job to `.github/workflows/ci.yml` that runs
+  `trivy fs --scanners vuln,license,secret,config .` (one tool, broad
+  coverage) and uploads SARIF findings to GitHub's Code-Scanning tab.
+  Equivalently, run `syft . -o cyclonedx-json | grype` for an
+  SBOM-then-scan flow.
+- **Efterlev detector:** `github.supply_chain_monitoring`.
+
+### 24. No declarative-deploy workflow (no `terraform apply`, helm, or kubectl in CI)
+
+- **File:** None. The three workflows run tests, validate, and
+  scan — none of them apply changes to AWS. Real deploys happen
+  manually from operator workstations (`ci_deploy` IAM user — see
+  gap #8).
+- **KSI:** KSI-CMT-RMV (Redeploying vs Modifying via immutable
+  pipelines).
+- **800-53 controls:** CM-2, CM-7.
+- **Classification:** Not implemented.
+- **What's present:** Workflow-driven validation (`terraform fmt`,
+  `terraform validate`).
+- **What's missing:** Workflow-driven deployment. `terraform apply`
+  runs from operator laptops with the long-lived `ci_deploy` access
+  key, not from a CI workflow that re-applies the version-controlled
+  baseline. KSI-CMT-RMV asks customers to *execute changes through
+  redeployment of version-controlled immutable resources rather than
+  direct modification*; this codebase ships the version-controlled
+  resources but the modification path remains direct.
+- **Why this happens in real teams:** The `ci_deploy → OIDC migration`
+  in PLAT-1184 (referenced in gap #8) is the prerequisite — once
+  that lands, an `apply.yml` workflow assuming a federated role
+  becomes plausible. Until then, the workstation-apply pattern
+  persists.
+- **Fix:** After PLAT-1184 ships (federation + deploy role),
+  add `.github/workflows/apply.yml` that runs on `workflow_dispatch`
+  + tag pushes, assumes the deploy role via OIDC, and runs
+  `terraform plan` then `terraform apply` against the boundary.
+  Gate behind a `production` environment with required reviewers.
+- **Efterlev detector:** `github.immutable_deploy_patterns`.
+
+---
+
 ## Summary table
 
 | #  | KSI | Classification | File | Resource | Severity |
@@ -607,6 +702,9 @@ at the IaC layer.
 | 19 | KSI-RPL-TRC | Not implemented | backups.tf | (no `aws_backup_restore_testing_plan`) | Medium |
 | 20 | KSI-IAM-JIT | Not implemented | iam.tf | `aws_iam_role.legacy_break_glass` + AdministratorAccess attachment | High |
 | 21 | KSI-MLA-OSM | Not implemented | (none) | (no aggregator: Firehose / Security Hub / log destinations) | Medium |
+| 22 | KSI-SCR-MIT | Not implemented | .github/workflows/* | All `uses:` use mutable tags (`@v3`–`@v5`), not commit SHAs | High |
+| 23 | KSI-SCR-MON | Not implemented | .github/workflows/* | (no SBOM/CVE scanner step in any workflow) | High |
+| 24 | KSI-CMT-RMV | Not implemented | .github/workflows/* | (no `terraform apply` / declarative-deploy workflow) | Medium |
 
 Showcase finding for the remediation demo: gap #1 (`user_uploads`
 missing encryption). The fix is a one-line addition to the storage

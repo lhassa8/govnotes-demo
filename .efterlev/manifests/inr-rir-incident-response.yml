@@ -1,0 +1,27 @@
+ksi: KSI-INR-RIR
+name: Reporting Incidents and Response
+evidence:
+  - type: attestation
+    statement: >
+      Govnotes maintains a documented incident response plan covering
+      detection, triage, containment, eradication, recovery, and
+      post-incident review. The plan is reviewed annually by the
+      platform-security team and tested via quarterly tabletop
+      exercises with cross-functional participation (engineering,
+      legal, executive, customer-success). Real incidents are reported
+      to the FedRAMP PMO via the FedRAMP Security Inbox process
+      (see KSI-AFR-FSI manifest) within the timelines required by the
+      authorization. The 2026 Q1 tabletop (2026-02-18) exercised the
+      "compromised long-lived IAM access key" scenario; findings drove
+      the OIDC migration project (PLAT-1184) named in DELIBERATE_GAPS
+      gap #8. The 2025 Q4 tabletop (2025-11-05) exercised the
+      "ransomware on user_uploads bucket" scenario.
+    attested_by: ciso@govnotes.fed
+    attested_at: 2026-03-20
+    reviewed_at: 2026-03-20
+    next_review: 2026-09-20
+    supporting_docs:
+      - ./docs/policies/incident-response-plan.pdf
+      - ./docs/runbooks/ir-tabletop-2026q1.md
+      - ./docs/runbooks/ir-tabletop-2025q4.md
+      - https://wiki.govnotes.fed/security/incident-response

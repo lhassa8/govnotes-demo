@@ -13,6 +13,27 @@ it is not the system of record for compliance evidence — see
 
 ## 2026-04
 
+- **2026-04-30** — PR2 of the Efterlev coverage refresh:
+  - Added `modules/observability/` with three CloudWatch alarms
+    (ECS service unhealthy, RDS CPU saturated, ALB 5xx spike)
+    inside the module. Govnotes is now genuinely module-composed
+    (storage + observability) rather than module-trivial.
+  - Added Evidence Manifests under `.efterlev/manifests/` for three
+    procedural-only KSIs in themes the scanner cannot reach:
+    KSI-AFR-FSI (security inbox), KSI-CED-RGT (security training),
+    KSI-INR-RIR (incident response). Each carries an attestor,
+    dates, and supporting-doc links.
+  - Documented three new GitHub-workflow gaps (#22-24): action_pinning
+    on mutable tags rather than commit SHAs (KSI-SCR-MIT), no SBOM /
+    vulnerability scanner step (KSI-SCR-MON), no declarative-deploy
+    workflow (KSI-CMT-RMV).
+  - Moved the Efterlev scan target from `infra/terraform/` to repo
+    root (`.`) so the github-source detectors and manifests both
+    surface in a single pass. Updated `.gitignore` to keep
+    `.efterlev/manifests/` tracked while ignoring runtime artifacts
+    (store.db, cache, receipts, redactions, reports).
+  - Total deliberate-gaps coverage now 24 entries spanning 16 unique
+    KSIs across 8 themes.
 - **2026-04-30** — Expanded `DELIBERATE_GAPS.md` from 12 entries to
   21, hitting 6 new FedRAMP 20x KSIs across previously-uncovered
   themes (CNA, expanded MLA, expanded IAM, SVC retention, RPL

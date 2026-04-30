@@ -176,3 +176,33 @@ resource "aws_flow_log" "vpc" {
     Name = "${local.name_prefix}-vpc-flow-logs"
   }
 }
+
+# ------------------------------------------------------------------------
+# Observability module — CloudWatch alarms for ECS, RDS, ALB.
+#
+# Wrapped into a module so the alarm set composes cleanly across future
+# workloads. Every alarm declared inside the module surfaces only via
+# `efterlev scan --plan plan.json` (HCL-mode detectors don't follow into
+# module bodies); a customer evaluating Efterlev can compare HCL-mode
+# evidence count to plan-mode evidence count against this codebase to
+# see the module-composition lift firsthand.
+# ------------------------------------------------------------------------
+
+module "observability" {
+  source = "./modules/observability"
+
+  name_prefix      = local.name_prefix
+  ecs_cluster_name = aws_ecs_cluster.main.name
+  ecs_service_name = aws_ecs_service.app.name
+  rds_instance_id  = aws_db_instance.app.id
+  alb_arn_suffix   = aws_lb.app.arn_suffix
+
+  # alarm_actions intentionally empty — wiring SNS topics for paging is
+  # tracked in a follow-up. The alarms still fire on the metrics; they
+  # just don't notify anyone yet.
+  alarm_actions = []
+
+  tags = {
+    Name = "${local.name_prefix}-observability"
+  }
+}
