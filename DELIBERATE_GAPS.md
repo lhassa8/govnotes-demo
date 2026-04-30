@@ -354,6 +354,234 @@ based on that evidence.
 
 ---
 
+## Coverage gaps — capability surfaces not yet built out
+
+The gaps above are misconfigurations on resources that exist. The gaps
+below are entire capability surfaces a FedRAMP 20x customer is expected
+to implement that this codebase does not yet declare. They surface as
+"not implemented" findings because the corresponding evidence is absent
+at the IaC layer.
+
+### 13. EC2 bastion allows IMDSv1 (no `http_tokens = "required"`)
+
+- **File:** `infra/terraform/compute.tf`, resource
+  `aws_instance.bastion` (around line 123). No `metadata_options` block.
+  The default behavior on `aws_instance` without an explicit
+  `metadata_options` block is IMDSv1 + IMDSv2 both accepted.
+- **KSI:** KSI-CNA-IBP (Immutable Build Pipeline / Image-Based Posture).
+  Cross-mapped to KSI-CNA-DFP via CM-2.
+- **800-53 controls:** CM-2, CM-6.
+- **Classification:** Not implemented.
+- **What's present:** The bastion is encrypted at rest, in a private
+  subnet, monitored, and SSM-only.
+- **What's missing:** Enforced IMDSv2. A workload that gets SSRF'd to
+  `http://169.254.169.254/latest/meta-data/` on this instance can
+  exfiltrate the role's STS token via IMDSv1.
+- **Why this happens in real teams:** Default Terraform behavior; the
+  team didn't know IMDSv1 needed to be explicitly disabled. The Capital
+  One breach made `http_tokens = "required"` the canonical safe default,
+  but Terraform still defaults to optional.
+- **Fix:** Add a `metadata_options` block to `aws_instance.bastion`
+  with `http_tokens = "required"` and `http_endpoint = "enabled"`.
+- **Efterlev detector:** `aws.ec2_imdsv2_required`.
+
+### 14. NACLs default-permissive (no `aws_network_acl` declared)
+
+- **File:** `infra/terraform/network.tf`. No `aws_network_acl` or
+  `aws_network_acl_rule` resources are declared, so the VPC's
+  subnets fall back to the default network ACL — which allows all
+  inbound and outbound IPv4/IPv6 traffic.
+- **KSI:** KSI-CNA-RNT (Restricting Network Traffic).
+- **800-53 controls:** SC-7, SC-7(5).
+- **Classification:** Not implemented.
+- **What's present:** Per-subnet routing is set up; security groups
+  enforce allow-list ingress at the instance/ENI layer.
+- **What's missing:** Subnet-level deny-list traffic restriction.
+  Defense-in-depth between security groups and the wire is absent;
+  any SG misconfig that allows broader-than-intended traffic is not
+  countered at the NACL layer.
+- **Why this happens in real teams:** Teams that come from VPC-defaults
+  often treat security groups as sufficient. NACLs are a separate
+  mental model and are more often added during a 3PAO finding than
+  during initial buildout.
+- **Fix:** Declare per-tier `aws_network_acl` resources for `public`,
+  `private_app`, and `private_data` subnet groups, with explicit
+  ingress/egress rule allow-listing. The data tier should deny inbound
+  from the public tier directly (force traffic through the app tier).
+- **Efterlev detector:** `aws.nacl_restrictiveness`.
+
+### 15. No SAML / OIDC federated identity provider
+
+- **File:** `infra/terraform/iam.tf`. No
+  `aws_iam_openid_connect_provider` or `aws_iam_saml_provider`
+  resources are declared.
+- **KSI:** KSI-IAM-APM (Authentication Provider Management).
+- **800-53 controls:** IA-2, IA-5(2).
+- **Classification:** Not implemented.
+- **What's present:** Long-lived IAM users (`ci_deploy`, gap #8) and
+  IAM roles assumable from within the account; MFA enforcement on
+  some policies (gaps #7, #11).
+- **What's missing:** A federated entry point. There's no OIDC
+  provider for GitHub Actions (the migration target named in gap #8),
+  no SAML provider for SSO, and no IAM Identity Center setup. Every
+  human/CI principal authenticates with long-lived AWS credentials.
+- **Why this happens in real teams:** The OIDC migration named in
+  gap #8 (`PLAT-1184`) hasn't started. The platform team scoped it
+  for after the 20x readiness sweep.
+- **Fix:** Declare an `aws_iam_openid_connect_provider` for
+  `token.actions.githubusercontent.com` (the GitHub Actions OIDC
+  issuer). Replace `aws_iam_user.ci_deploy` (gap #8) with an
+  `aws_iam_role` whose trust policy federates from that provider.
+- **Efterlev detector:** `aws.federated_identity_providers`.
+
+### 16. No S3 lifecycle policies on any bucket
+
+- **File:** `infra/terraform/modules/storage/main.tf` and
+  `infra/terraform/data.tf`. No `aws_s3_bucket_lifecycle_configuration`
+  resources are declared, in the storage module or anywhere else.
+- **KSI:** KSI-SVC-RUD (Removing Unwanted Data) — partial cross-mapping.
+- **800-53 controls:** SI-12, SI-12(3).
+- **Classification:** Not implemented.
+- **What's present:** Encryption, versioning (on most buckets), and
+  public-access blocks on every bucket.
+- **What's missing:** Any rule that expires or transitions objects.
+  The `cloudtrail` bucket grows unbounded; the `internal_reports`
+  bucket has no archive cadence; `user_uploads` has no
+  retention/deletion schedule. FedRAMP 20x SI-12 expects declared
+  retention discipline.
+- **Why this happens in real teams:** Lifecycle rules are an
+  afterthought. The team intended to add them after observing real
+  storage-growth patterns; "make it work first."
+- **Fix:** Add `aws_s3_bucket_lifecycle_configuration` per bucket
+  with at least one rule containing an `expiration` block. CloudTrail
+  archive bucket: 365-day retention then expiration. user_uploads:
+  defer to legal — but at least transition to STANDARD_IA after 90.
+- **Efterlev detector:** `aws.s3_lifecycle_policies`.
+
+### 17. No GuardDuty detector
+
+- **File:** None. No `aws_guardduty_detector` resource exists in this
+  codebase.
+- **KSI:** KSI-MLA-OSM (Operating SIEM Capability).
+- **800-53 controls:** SI-4, RA-5(11).
+- **Classification:** Not implemented.
+- **What's present:** CloudTrail capture, VPC Flow Logs, CloudWatch
+  log groups, app-side log routing.
+- **What's missing:** Threat-detection findings on the captured
+  telemetry. CloudTrail collects events; nothing in the codebase
+  analyzes them for compromise indicators (credential exfil, unusual
+  API patterns, Tor exit-node usage, etc.).
+- **Why this happens in real teams:** Cost. GuardDuty was deferred
+  pending the security-budget approval that's tracked for Q2.
+- **Fix:** Add `aws_guardduty_detector` with `enable = true` in this
+  region. Add a corresponding `aws_guardduty_filter` /
+  `aws_guardduty_publishing_destination` for the security-bucket SIEM
+  pipeline once that exists (gap #21).
+- **Efterlev detector:** `aws.guardduty_enabled`.
+
+### 18. No AWS Config recording
+
+- **File:** None. No `aws_config_configuration_recorder` or
+  `aws_config_delivery_channel` resource exists.
+- **KSI:** KSI-MLA-EVC (Evaluating Configurations).
+  Cross-mapped to KSI-SVC-ACM (Automating Configuration Management).
+- **800-53 controls:** CM-2, CM-8(2).
+- **Classification:** Not implemented.
+- **What's present:** Terraform itself is the declared source of truth
+  (`aws.terraform_inventory` evidences this).
+- **What's missing:** Continuous runtime evaluation of declared-vs-
+  actual configuration. AWS Config detects drift between IaC declaration
+  and runtime state. Without it, a console-introduced change is
+  invisible until the next `terraform plan`.
+- **Why this happens in real teams:** Same as GuardDuty (gap #17) —
+  cost + assumption that "we don't change things in the console."
+  Audit findings frequently reveal otherwise.
+- **Fix:** Declare `aws_config_configuration_recorder` with
+  `recording_group { all_supported = true, include_global_resource_types = true }`,
+  paired with `aws_config_delivery_channel` writing to a Config-
+  dedicated S3 bucket (encrypted, versioned, log-bucket pattern).
+- **Efterlev detector:** `aws.config_enabled`.
+
+### 19. No backup-restore testing
+
+- **File:** `infra/terraform/backups.tf`. The file declares
+  `aws_backup_plan.app_db` and `aws_backup_selection.app_db` (so
+  backups happen) but no `aws_backup_restore_testing_plan` or
+  `aws_backup_restore_testing_selection`.
+- **KSI:** KSI-RPL-TRC (Testing Recovery Capabilities).
+- **800-53 controls:** CP-4, CP-4(1).
+- **Classification:** Not implemented.
+- **What's present:** Daily backups of the primary RDS instance with
+  appropriate retention.
+- **What's missing:** Scheduled automated restore tests. AWS Backup
+  Restore Testing (introduced 2023) is the cloud-native primitive for
+  proving recovery actually works. Backups exist, but nothing in this
+  codebase exercises them on a schedule.
+- **Why this happens in real teams:** Restore-testing is a relatively
+  new AWS Backup feature; many teams shipped backups before it landed
+  and haven't retrofitted. CP-4 is the FedRAMP 20x line that turns
+  this from a nice-to-have into an explicit requirement.
+- **Fix:** Add an `aws_backup_restore_testing_plan` with a weekly
+  `schedule_expression` and a paired
+  `aws_backup_restore_testing_selection` referencing the existing
+  app_db backup vault.
+- **Efterlev detector:** `aws.backup_restore_testing`.
+
+### 20. `legacy_break_glass` role attached to AWS-managed `AdministratorAccess`
+
+- **File:** `infra/terraform/iam.tf`, resources
+  `aws_iam_role.legacy_break_glass` and
+  `aws_iam_role_policy_attachment.legacy_break_glass_admin` (at the
+  end of the file). The role's `policy_arn` is
+  `arn:aws:iam::aws:policy/AdministratorAccess`.
+- **KSI:** KSI-IAM-JIT (Authorizing Just-In-Time). Cross-mapped to
+  KSI-IAM-ELP (Ensuring Least Privilege).
+- **800-53 controls:** AC-6, AC-6(2).
+- **Classification:** Not implemented.
+- **What's present:** The role's trust policy requires MFA; assumption
+  is gated to authenticated principals in the account.
+- **What's missing:** Time-bound, just-in-time elevation. The role is
+  a permanent grant of full account power; once assumed, the holder
+  can do anything. The `platform_admin` policy elsewhere in this file
+  is custom-scoped and MFA-gated; this one bypasses both ideas.
+- **Why this happens in real teams:** Stood up before the
+  platform_admin / readonly_auditor split; kept around "for emergency
+  operations during the migration window." The kind of role that
+  outlives its rationale and shows up in 3PAO audits as the highest-
+  severity finding.
+- **Fix:** Delete `aws_iam_role.legacy_break_glass` and the
+  AdministratorAccess attachment. Use `platform_admin` for routine
+  admin work (already MFA-gated and least-privilege-scoped) and
+  AWS Identity Center session policies for genuine break-glass.
+- **Efterlev detector:** `aws.iam_admin_policy_usage`.
+
+### 21. No centralized log aggregation primitives
+
+- **File:** None. The codebase declares CloudWatch log groups for the
+  app and VPC flow logs, plus a CloudTrail; it does not declare any
+  aggregator (Kinesis Firehose, Security Hub, log destinations,
+  subscription filters, OpenSearch, or cross-account log destinations).
+- **KSI:** KSI-MLA-OSM (Operating SIEM Capability) — partial.
+- **800-53 controls:** AU-2, AU-3, AU-4, SI-4(2).
+- **Classification:** Not implemented.
+- **What's present:** Log producers (CloudWatch log groups, the
+  CloudTrail trail, the VPC flow log) all collect data.
+- **What's missing:** Centralization. Logs are per-resource silos;
+  nothing aggregates them to a queryable store, a SIEM, or a
+  cross-account log archive. KSI-MLA-OSM expects evidence of
+  centralized, tamper-resistant log handling.
+- **Why this happens in real teams:** SIEM integration is downstream
+  of "get logs flowing." This codebase is at "logs flowing"; the SIEM
+  layer is tracked for the next phase but not yet declared.
+- **Fix:** Declare an `aws_kinesis_firehose_delivery_stream` to a
+  log-aggregation S3 bucket, plus subscription filters from each
+  CloudWatch log group to the Firehose. Or `aws_securityhub_account` +
+  finding aggregator if the team wires GuardDuty (gap #17) and
+  Inspector findings into Security Hub instead.
+- **Efterlev detector:** `aws.centralized_log_aggregation`.
+
+---
+
 ## Summary table
 
 | #  | KSI | Classification | File | Resource | Severity |
@@ -370,6 +598,15 @@ based on that evidence.
 | 10 | KSI-SVC-VRI | Partially implemented | data.tf | `aws_kms_key.reports` + `kms_reports` doc | Medium |
 | 11 | KSI-IAM-MFA | Partially implemented | iam.tf | `aws_iam_role.data_ops` + policy doc | Medium |
 | 12 | KSI-MLA     | Partially implemented | logging.tf | `aws_cloudtrail.main` | Medium |
+| 13 | KSI-CNA-IBP | Not implemented | compute.tf | `aws_instance.bastion` (no `metadata_options`) | High |
+| 14 | KSI-CNA-RNT | Not implemented | network.tf | (no `aws_network_acl` declared) | Medium |
+| 15 | KSI-IAM-APM | Not implemented | iam.tf | (no federated identity provider) | High |
+| 16 | KSI-SVC-RUD | Not implemented | data.tf, modules/storage | (no S3 lifecycle on any bucket) | Medium |
+| 17 | KSI-MLA-OSM | Not implemented | (none) | (no `aws_guardduty_detector`) | Medium |
+| 18 | KSI-MLA-EVC | Not implemented | (none) | (no `aws_config_*` recorder/channel) | Medium |
+| 19 | KSI-RPL-TRC | Not implemented | backups.tf | (no `aws_backup_restore_testing_plan`) | Medium |
+| 20 | KSI-IAM-JIT | Not implemented | iam.tf | `aws_iam_role.legacy_break_glass` + AdministratorAccess attachment | High |
+| 21 | KSI-MLA-OSM | Not implemented | (none) | (no aggregator: Firehose / Security Hub / log destinations) | Medium |
 
 Showcase finding for the remediation demo: gap #1 (`user_uploads`
 missing encryption). The fix is a one-line addition to the storage

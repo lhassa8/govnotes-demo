@@ -351,3 +351,49 @@ resource "aws_iam_user_policy_attachment" "ci_deploy" {
   user       = aws_iam_user.ci_deploy.name
   policy_arn = aws_iam_policy.ci_deploy.arn
 }
+
+# ------------------------------------------------------------------------
+# Legacy break-glass role
+#
+# Stood up before the platform_admin / readonly_auditor split, when the
+# pre-FedRAMP admin model was a single role with AdministratorAccess.
+# We're keeping it for emergency operations during the migration window;
+# tracked for removal in PLAT-2104 once the platform_admin coverage is
+# verified end-to-end.
+# ------------------------------------------------------------------------
+
+data "aws_iam_policy_document" "assume_role_legacy_break_glass" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:${local.partition}:iam::${local.account_id}:root"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:MultiFactorAuthPresent"
+      values   = ["true"]
+    }
+  }
+}
+
+resource "aws_iam_role" "legacy_break_glass" {
+  name               = "${local.name_prefix}-legacy-break-glass"
+  assume_role_policy = data.aws_iam_policy_document.assume_role_legacy_break_glass.json
+
+  tags = {
+    Purpose = "legacy-break-glass"
+    Owner   = "platform-team"
+    Note    = "Migration-tracked: PLAT-2104"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "legacy_break_glass_admin" {
+  role = aws_iam_role.legacy_break_glass.name
+  # Hardcoded `arn:aws:` rather than `arn:${local.partition}:` for
+  # parser compatibility — python-hcl2 (Efterlev's static parser)
+  # doesn't resolve interpolations, so the partitioned form would
+  # bypass the detector. Acceptable for this synthetic boundary.
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}

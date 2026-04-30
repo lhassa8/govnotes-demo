@@ -1,5 +1,10 @@
 name: efterlev-scan
 
+# Runs Efterlev's full compliance pipeline (init → scan → agent gap →
+# agent document → poam) against this repository's Terraform on every
+# push to main and every PR touching infra. Uploads the full
+# `.efterlev/reports/` artifact for download from the Actions tab.
+
 on:
   push:
     branches: [main]
@@ -23,49 +28,59 @@ permissions:
 
 jobs:
   scan:
-    name: efterlev scan + agents
+    name: efterlev report run
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Check out govnotes-demo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install Efterlev from private repo
-        env:
-          GH_TOKEN: ${{ secrets.EFTERLEV_INSTALL_TOKEN }}
+      - name: Install pipx
         run: |
-          pip install --upgrade pip
-          pip install "git+https://x-access-token:${GH_TOKEN}@github.com/lhassa8/Efterlev.git@main"
-          efterlev --version
+          python3 -m pip install --user pipx
+          python3 -m pipx ensurepath
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: efterlev init
-        run: efterlev init --target infra/terraform
+      - name: Install Efterlev from PyPI
+        run: pipx install efterlev
 
-      - name: efterlev scan
-        run: efterlev scan --target infra/terraform
+      - name: Verify install
+        run: |
+          which efterlev
+          pipx list | grep efterlev || true
 
-      - name: efterlev agent gap
+      - name: efterlev doctor
+        # Pre-flight diagnostics — Python, workspace, FRMR cache,
+        # ANTHROPIC_API_KEY shape. No network calls. Output is for
+        # the run log; we don't gate on this step.
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: efterlev agent gap --target infra/terraform
+        run: efterlev doctor --target infra/terraform || true
 
-      - name: efterlev agent document
+      - name: efterlev report run
+        # One command runs the full pipeline: init → scan → agent gap
+        # → agent document → poam. Skips agent remediate (we run that
+        # explicitly below for the canonical KSI-SVC-VRI showcase).
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: efterlev agent document --target infra/terraform
+        run: efterlev report run --target infra/terraform
 
-      - name: efterlev agent remediate
+      - name: efterlev agent remediate (showcase)
+        # Demonstrates the remediation flow on the canonical "missing
+        # encryption on user_uploads" gap (#1 in DELIBERATE_GAPS.md).
+        # The diff is written to `.efterlev/reports/` and uploaded
+        # below; nothing is applied to the codebase.
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: efterlev agent remediate --ksi KSI-SVC-SNT --target infra/terraform
+        run: efterlev agent remediate --ksi KSI-SVC-VRI --target infra/terraform
 
-      - name: Upload gap report HTML + provenance store
+      - name: Upload reports + provenance store
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -74,5 +89,6 @@ jobs:
             infra/terraform/.efterlev/reports/
             infra/terraform/.efterlev/store.db
             infra/terraform/.efterlev/receipts.log
+            infra/terraform/.efterlev/redactions/
           retention-days: 30
           if-no-files-found: warn
