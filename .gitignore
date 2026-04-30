@@ -28,6 +28,22 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
+# Efterlev — local provenance store, scan caches, redaction audit log,
+# and report artifacts. Manifests under .efterlev/manifests/ ARE
+# committed (they're customer-authored evidence); everything else is
+# runtime state recreated on every scan. Patterns use **/ because the
+# .efterlev/ workspace lives under infra/terraform/, not repo root.
+**/.efterlev/cache/
+**/.efterlev/store/
+**/.efterlev/store.db
+**/.efterlev/store.db-journal
+**/.efterlev/store.db-shm
+**/.efterlev/store.db-wal
+**/.efterlev/receipts.log
+**/.efterlev/redactions/
+**/.efterlev/reports/
+**/.efterlev/config.toml
+
 # OS / editors
 .DS_Store
 Thumbs.db

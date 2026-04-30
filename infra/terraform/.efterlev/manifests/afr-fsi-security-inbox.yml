@@ -1,0 +1,22 @@
+ksi: KSI-AFR-FSI
+name: FedRAMP Security Inbox
+evidence:
+  - type: attestation
+    statement: >
+      security@govnotes.fed is monitored by the platform-security team
+      24/7. Inbox is configured in Google Workspace with a 15-minute
+      acknowledgment SLA documented in docs/runbooks/security-inbox.md
+      and forwards high-severity reports to the on-call PagerDuty
+      rotation. Incoming messages are triaged into our incident
+      management system within the SLA window. The security lead reviews
+      acknowledgment timings every Friday and tracks misses in the
+      monthly SOC report. Two-week post-incident review covers any
+      missed-SLA notifications during that window.
+    attested_by: vp-security@govnotes.fed
+    attested_at: 2026-04-15
+    reviewed_at: 2026-04-15
+    next_review: 2026-10-15
+    supporting_docs:
+      - ./docs/runbooks/security-inbox.md
+      - ./docs/policies/security-inbox-sla.pdf
+      - https://wiki.govnotes.fed/soc/security-inbox
