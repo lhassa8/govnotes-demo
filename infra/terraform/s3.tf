@@ -19,7 +19,7 @@
 #   temp_data_pipeline ✗ (gap)     —            ✗ (gap)       ✗
 #
 # This isn't aspirational — it's exactly the bucket-by-bucket variance
-# a 3PAO would surface in a real scoping meeting. KSI-CMT-CKM (CMK
+# a 3PAO would surface in a real scoping meeting. KSI-SVC-PRR (CMK
 # usage) is `partial` here — most buckets use CMKs, two use AWS-managed
 # keys, two have no encryption block at all.
 # ------------------------------------------------------------------------
@@ -64,7 +64,7 @@ resource "aws_s3_bucket_versioning" "app_uploads" {
 
 # --- bucket 2: static_assets — encrypted but with AWS-managed key --------
 # AWS-managed keys (sse_algorithm = "AES256") are KMS-encrypted but not
-# customer-controlled. KSI-CMT-CKM wants CMKs on data assets; this one
+# customer-controlled. KSI-SVC-PRR wants CMKs on data assets; this one
 # is borderline because static assets are public-read content with no
 # data classification. Documented as partial.
 
