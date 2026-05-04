@@ -714,9 +714,10 @@ were under-exercised.
   | legacy_export      | absent    | —            | all 4 = true | absent     |
   | temp_data_pipeline | absent    | —            | absent       | absent     |
 
-- **KSIs:** KSI-CMT-CKM (Customer-managed Keys), KSI-SVC-VRI
-  (Validating Resource Integrity), KSI-CNA-IAS (Internet-Accessible
-  Surface — public-access block).
+- **KSIs:** KSI-SVC-VRI (Validating Resource Integrity — encryption-at-
+  rest posture), KSI-SVC-PRR (Preventing Residual Risk — CMK control
+  over data assets), KSI-CNA-MAT (Minimizing Attack Surface —
+  public-access block).
 - **800-53 controls:** SC-28, SC-28(1), AC-3.
 - **Classification:** Partial across all three KSIs. Some buckets
   meet the standard, some don't, some partially do (ml_training_data
@@ -755,8 +756,8 @@ were under-exercised.
   | experiments       | unset (never)     | logs CMK     |
   | integrations      | 30                | unset        |
 
-- **KSIs:** KSI-MLA-LET (Logging Events of Interest), KSI-MLA-RTN
-  (Log Retention).
+- **KSIs:** KSI-MLA-LET (Logging Event Types — covers retention as
+  part of "logging the right events long enough to investigate").
 - **800-53 controls:** AU-11, AU-9.
 - **Classification:** Partial. Two log groups meet the standard
   (vpc_flow_logs, app_runtime); two don't (experiments has no
@@ -835,8 +836,8 @@ were under-exercised.
 | 22 | KSI-SCR-MIT | Partially implemented | .github/workflows/* | Mixed pin posture across 5 workflows (3 tag-pinned, 2 mixed) | Medium |
 | 23 | KSI-SCR-MON | Partially implemented | .github/workflows/security-scan.yml | SBOM via syft, no CVE scan | Medium |
 | 24 | KSI-CMT-RMV | Partially implemented | .github/workflows/release-deploy.yml | `terraform apply` + imperative `aws s3 sync` | Medium |
-| 25 | KSI-CMT-CKM, KSI-SVC-VRI, KSI-CNA-IAS | Partially implemented | s3.tf | 6 buckets, mixed encryption / public-block / versioning posture | Medium |
-| 26 | KSI-MLA-LET, KSI-MLA-RTN | Partially implemented | logging.tf | 4 log groups, mixed retention + KMS posture | Medium |
+| 25 | KSI-SVC-VRI, KSI-SVC-PRR, KSI-CNA-MAT | Partially implemented | s3.tf | 6 buckets, mixed encryption / public-block / versioning posture | Medium |
+| 26 | KSI-MLA-LET | Partially implemented | logging.tf | 4 log groups, mixed retention + KMS posture | Medium |
 | 27 | (out of boundary) | — | dev_sandbox/main.tf | `dev_scratch` RDS + S3 — boundary excludes the subtree | N/A |
 
 Showcase finding for the remediation demo: gap #1 (`user_uploads`
