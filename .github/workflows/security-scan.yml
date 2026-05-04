@@ -1,0 +1,56 @@
+name: security-scan
+
+# Supply-chain monitoring workflow — generates an SBOM on every push to
+# main using syft. Deliberately PARTIAL: SBOM tooling is in place but the
+# CVE-scan side (grype / trivy / snyk) is not yet wired up. The supply-
+# chain monitoring detector will surface this as `partial` because SBOM
+# tools are detected but CVE-scan tools are not.
+#
+# Action pinning is also intentionally MIXED — the official `actions/*`
+# steps are pinned by tag (`@v5`), the third-party syft step is pinned
+# by SHA. The action-pinning detector should classify this workflow as
+# partial pin posture (not "all pinned" or "all mutable").
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly Sunday-night sweep so nightly drift is caught.
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate Python SBOM via syft
+        # Pinned to a specific SHA — `anchore/sbom-action`'s tag-based
+        # references have moved before. SHA pinning is the canonical
+        # supply-chain hardening posture.
+        uses: anchore/sbom-action@b6a39da80722a2cb0ef5d197531764a89b5d48c3
+        with:
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: govnotes-sbom
+          path: sbom.cdx.json
+
+      # CVE-scan step intentionally absent — wiring up grype against the
+      # generated SBOM is on the security-eng backlog. The supply-chain
+      # monitoring detector treats this as `partial`: SBOM is generated,
+      # but no continuous CVE check exists. Real mid-journey state.

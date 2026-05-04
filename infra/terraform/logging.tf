@@ -132,6 +132,47 @@ resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
   kms_key_id        = aws_kms_key.logs.arn
 }
 
+# Application-side log groups. Retention posture is mixed: the app-tier
+# log group has the proper 365-day retention + CMK; the "experiments"
+# log group was created during a debugging push and never had retention
+# configured (defaults to "never expire"); the integrations log group
+# has a 30-day retention but no CMK encryption (KSI-MLA-LET wants both).
+# Real partial state — the team is mid-migration to a single retention
+# policy via a Terragrunt-style aspect, not yet rolled out.
+
+resource "aws_cloudwatch_log_group" "app_runtime" {
+  name              = "/govnotes/${var.environment}/app-runtime"
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.logs.arn
+
+  tags = {
+    Tier = "app"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "experiments" {
+  name = "/govnotes/${var.environment}/experiments"
+  # retention_in_days intentionally unset — never-expire default. Tracked
+  # gap, owner is the data-platform team.
+  kms_key_id = aws_kms_key.logs.arn
+
+  tags = {
+    Tier = "experiments"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "integrations" {
+  name              = "/govnotes/${var.environment}/integrations"
+  retention_in_days = 30
+  # kms_key_id intentionally omitted — partner-integration debug data
+  # was deemed low-sensitivity and the team punted on key configuration.
+  # Tracked partial.
+
+  tags = {
+    Tier = "integrations"
+  }
+}
+
 resource "aws_iam_role" "flow_logs" {
   name = "${local.name_prefix}-flow-logs"
 
