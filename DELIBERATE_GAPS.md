@@ -590,16 +590,20 @@ each `uses:` step is inspected for security-relevant signals. The gaps
 below are observable from `.github/workflows/{ci,terraform-check,
 efterlev-scan}.yml` as they currently sit in this repo.
 
-### 22. Third-party GitHub Actions are pinned to mutable tags, not commit SHAs
+### 22. GitHub Actions pin posture is mixed (some SHA-pinned, most by tag)
 
 - **File:** `.github/workflows/ci.yml`,
   `.github/workflows/terraform-check.yml`,
-  `.github/workflows/efterlev-scan.yml`. Every `uses:` reference
-  uses a major-version tag (`@v3`, `@v4`, `@v5`) rather than a 40-hex
-  commit SHA.
+  `.github/workflows/efterlev-scan.yml` — all use major-version tags
+  (`@v3`, `@v4`, `@v5`). `.github/workflows/security-scan.yml` and
+  `.github/workflows/release-deploy.yml` mix posture: official
+  `actions/*` steps pinned by tag, third-party `anchore/sbom-action`
+  and `slackapi/slack-github-action` pinned by 40-hex SHA.
 - **KSI:** KSI-SCR-MIT (Mitigating Supply Chain Risk).
 - **800-53 controls:** SR-5, SI-7(1).
-- **Classification:** Not implemented.
+- **Classification:** Partial. Two of five workflows are partial-
+  posture (some SHA-pinned, some tag-pinned); the other three are
+  fully tag-pinned. The Gap Agent should distinguish these.
 - **What's present:** Workflows use named, well-known third-party
   actions (`actions/checkout`, `actions/setup-python`,
   `hashicorp/setup-terraform`).
@@ -618,14 +622,20 @@ efterlev-scan}.yml` as they currently sit in this repo.
   as reviewable PRs.
 - **Efterlev detector:** `github.action_pinning`.
 
-### 23. No SBOM-generation or vulnerability-scanning step in CI
+### 23. SBOM generation is in place but no CVE scan is wired up
 
-- **File:** None. None of the three workflows runs `syft`, `grype`,
-  `trivy`, `osv-scanner`, `cargo audit`, `npm audit`, `pip-audit`,
-  `dependency-check`, or any equivalent scanner.
+- **File:** `.github/workflows/security-scan.yml` runs
+  `anchore/sbom-action` on every push to main and on a weekly
+  schedule, generating a CycloneDX SBOM. None of the workflows
+  invoke `grype`, `trivy`, `snyk test`, `osv-scanner`, `pip-audit`,
+  or any equivalent CVE scanner.
 - **KSI:** KSI-SCR-MON (Monitoring Supply Chain Risk).
 - **800-53 controls:** RA-5, SR-3.
-- **Classification:** Not implemented.
+- **Classification:** Partial. SBOM tooling counts as evidence
+  toward KSI-SCR-MON (it's the canonical "what's in our deps?"
+  artifact), but without a CVE scanner the SBOM is descriptive,
+  not actionable. The supply-chain monitoring detector should
+  surface `sbom_present=true, cve_scan_present=false`.
 - **What's present:** Per-language test runners (`npm test` for the
   app, `terraform validate` for the infra). Lint passes in CI.
 - **What's missing:** Automated supply-chain monitoring. CVEs in
@@ -644,16 +654,21 @@ efterlev-scan}.yml` as they currently sit in this repo.
   SBOM-then-scan flow.
 - **Efterlev detector:** `github.supply_chain_monitoring`.
 
-### 24. No declarative-deploy workflow (no `terraform apply`, helm, or kubectl in CI)
+### 24. Declarative-deploy workflow exists but is mostly-not-fully immutable
 
-- **File:** None. The three workflows run tests, validate, and
-  scan — none of them apply changes to AWS. Real deploys happen
-  manually from operator workstations (`ci_deploy` IAM user — see
-  gap #8).
+- **File:** `.github/workflows/release-deploy.yml` runs `terraform
+  apply` against `infra/terraform/` on `v*.*.*` tag pushes. The
+  declarative-deploy posture is correct, BUT a follow-up step does
+  `aws s3 sync ./app/static-assets/ s3://...` — an imperative
+  mutation outside Terraform's surface. The static-asset bundling
+  isn't yet wrapped into Terraform.
 - **KSI:** KSI-CMT-RMV (Redeploying vs Modifying via immutable
   pipelines).
 - **800-53 controls:** CM-2, CM-7.
-- **Classification:** Not implemented.
+- **Classification:** Partial. The infra-layer deploy is fully
+  declarative; the asset-layer deploy is imperative. Real-world
+  mid-journey state — most teams ship the IaC-managed pieces
+  before fully Terraform-izing build artifacts and content.
 - **What's present:** Workflow-driven validation (`terraform fmt`,
   `terraform validate`).
 - **What's missing:** Workflow-driven deployment. `terraform apply`
@@ -674,6 +689,121 @@ efterlev-scan}.yml` as they currently sit in this repo.
   `terraform plan` then `terraform apply` against the boundary.
   Gate behind a `production` environment with required reviewers.
 - **Efterlev detector:** `github.immutable_deploy_patterns`.
+
+---
+
+## Partial-state surfaces — `s3.tf`, `logging.tf`
+
+Tier 1 coverage expansion adds bucket-by-bucket and log-group-by-log-
+group variance — exactly the texture a 3PAO surfaces in scoping. The
+Gap Agent must distinguish `partial` from `not_implemented` when a
+workspace has *some* compliant resources alongside *some* gaps;
+without varied posture in the dogfood fixture, partial classifications
+were under-exercised.
+
+### 25. S3 buckets have mixed encryption / public-block / versioning posture
+
+- **File:** `infra/terraform/s3.tf`. Six buckets, posture matrix:
+
+  | bucket             | enc       | kms          | public_block | versioning |
+  |--------------------|-----------|--------------|--------------|------------|
+  | app_uploads        | aws:kms   | CMK (app)    | all 4 = true | enabled    |
+  | static_assets      | AES256    | aws-managed  | all 4 = true | enabled    |
+  | internal_reports   | aws:kms   | CMK (reports)| all 4 = true | absent     |
+  | ml_training_data   | AES256    | aws-managed  | partial (2/4)| absent     |
+  | legacy_export      | absent    | —            | all 4 = true | absent     |
+  | temp_data_pipeline | absent    | —            | absent       | absent     |
+
+- **KSIs:** KSI-CMT-CKM (Customer-managed Keys), KSI-SVC-VRI
+  (Validating Resource Integrity), KSI-CNA-IAS (Internet-Accessible
+  Surface — public-access block).
+- **800-53 controls:** SC-28, SC-28(1), AC-3.
+- **Classification:** Partial across all three KSIs. Some buckets
+  meet the standard, some don't, some partially do (ml_training_data
+  has 2 of 4 public-block flags set).
+- **What's present:** 4 of 6 buckets have encryption configured;
+  5 of 6 have a public-access block (3 of those fully-restrictive,
+  1 partial); 2 of 6 have versioning.
+- **What's missing:** Uniform posture. `legacy_export` and
+  `temp_data_pipeline` need encryption blocks; `internal_reports`
+  needs versioning; `ml_training_data` needs the remaining two
+  public-block flags.
+- **Why this happens in real teams:** Buckets accrete over time
+  with different owners. The fully-compliant `app_uploads` was
+  created last quarter when the security policy tightened;
+  `legacy_export` predates the policy and the consumer (a partner)
+  expects unencrypted CSVs.
+- **Fix:** Add `aws_s3_bucket_server_side_encryption_configuration`
+  for `legacy_export` and `temp_data_pipeline`; add
+  `aws_s3_bucket_public_access_block` (all 4 = true) for
+  `temp_data_pipeline`; flip `ml_training_data`'s
+  `block_public_policy` and `restrict_public_buckets` to true once
+  the partner integration moves to a federated role; add
+  `aws_s3_bucket_versioning` to `internal_reports`.
+- **Efterlev detectors:** `aws.encryption_s3_at_rest`,
+  `aws.s3_public_access_block`, `aws.s3_versioning`,
+  `aws.kms_key_rotation`.
+
+### 26. CloudWatch log groups have mixed retention + KMS encryption
+
+- **File:** `infra/terraform/logging.tf`. Four log groups:
+
+  | log group         | retention_in_days | kms_key_id   |
+  |-------------------|-------------------|--------------|
+  | vpc_flow_logs     | 365               | logs CMK     |
+  | app_runtime       | 365               | logs CMK     |
+  | experiments       | unset (never)     | logs CMK     |
+  | integrations      | 30                | unset        |
+
+- **KSIs:** KSI-MLA-LET (Logging Events of Interest), KSI-MLA-RTN
+  (Log Retention).
+- **800-53 controls:** AU-11, AU-9.
+- **Classification:** Partial. Two log groups meet the standard
+  (vpc_flow_logs, app_runtime); two don't (experiments has no
+  retention; integrations has no KMS encryption).
+- **What's present:** 3 of 4 log groups have retention; 3 of 4
+  have CMK encryption.
+- **What's missing:** Uniformity. `experiments` defaults to
+  never-expire (storage cost grows unbounded; AU-11 wants a
+  defined retention period). `integrations` has retention but
+  the partner-integration debug data isn't KMS-encrypted at rest.
+- **Why this happens in real teams:** Log groups proliferate
+  faster than the retention policy gets re-applied. The
+  Terragrunt-aspect rollout is in progress.
+- **Fix:** Add `retention_in_days = 30` to `experiments`; add
+  `kms_key_id = aws_kms_key.logs.arn` to `integrations`.
+- **Efterlev detectors:** `aws.cloudwatch_log_retention`,
+  `aws.cloudwatch_log_encryption`.
+
+### 27. Dev sandbox subtree is OUT OF FedRAMP boundary
+
+- **File:** `infra/terraform/dev_sandbox/main.tf`. A dev RDS
+  instance and S3 bucket with deliberately mis-configured posture
+  (no encryption, hardcoded password, no backups). The boundary
+  is declared in the workspace's `.efterlev/config.toml` (applied
+  by the `efterlev-scan` workflow) as:
+
+      [boundary]
+      include = ["infra/terraform/**"]
+      exclude = ["infra/terraform/dev_sandbox/**"]
+
+- **KSI:** N/A — boundary scoping is a 3PAO concern, not a KSI.
+- **Classification:** Out of boundary. Detectors should still emit
+  Evidence for these resources (so you can SEE them with
+  `efterlev provenance show`), but the boundary filter must drop
+  them from the POA&M.
+- **What's present:** Resources exist, are scanned, are surfaced
+  with `boundary_state = "out_of_boundary"`.
+- **What's missing:** Nothing — this is a positive test case for
+  the boundary mechanism. If POA&M items appear for `dev_scratch`
+  resources, the boundary filter has regressed.
+- **Why this happens in real teams:** Dev workloads live in a
+  separate AWS account in production setups. Keeping it in-repo
+  here is a deliberate fixture — same repo, same scan, but
+  out-of-scope for the FedRAMP package.
+- **Efterlev mechanism:** `[boundary]` section of
+  `.efterlev/config.toml` + `BoundaryConfig.classify_path()` at
+  Evidence-emission time.
 
 ---
 
@@ -702,9 +832,12 @@ efterlev-scan}.yml` as they currently sit in this repo.
 | 19 | KSI-RPL-TRC | Not implemented | backups.tf | (no `aws_backup_restore_testing_plan`) | Medium |
 | 20 | KSI-IAM-JIT | Not implemented | iam.tf | `aws_iam_role.legacy_break_glass` + AdministratorAccess attachment | High |
 | 21 | KSI-MLA-OSM | Not implemented | (none) | (no aggregator: Firehose / Security Hub / log destinations) | Medium |
-| 22 | KSI-SCR-MIT | Not implemented | .github/workflows/* | All `uses:` use mutable tags (`@v3`–`@v5`), not commit SHAs | High |
-| 23 | KSI-SCR-MON | Not implemented | .github/workflows/* | (no SBOM/CVE scanner step in any workflow) | High |
-| 24 | KSI-CMT-RMV | Not implemented | .github/workflows/* | (no `terraform apply` / declarative-deploy workflow) | Medium |
+| 22 | KSI-SCR-MIT | Partially implemented | .github/workflows/* | Mixed pin posture across 5 workflows (3 tag-pinned, 2 mixed) | Medium |
+| 23 | KSI-SCR-MON | Partially implemented | .github/workflows/security-scan.yml | SBOM via syft, no CVE scan | Medium |
+| 24 | KSI-CMT-RMV | Partially implemented | .github/workflows/release-deploy.yml | `terraform apply` + imperative `aws s3 sync` | Medium |
+| 25 | KSI-CMT-CKM, KSI-SVC-VRI, KSI-CNA-IAS | Partially implemented | s3.tf | 6 buckets, mixed encryption / public-block / versioning posture | Medium |
+| 26 | KSI-MLA-LET, KSI-MLA-RTN | Partially implemented | logging.tf | 4 log groups, mixed retention + KMS posture | Medium |
+| 27 | (out of boundary) | — | dev_sandbox/main.tf | `dev_scratch` RDS + S3 — boundary excludes the subtree | N/A |
 
 Showcase finding for the remediation demo: gap #1 (`user_uploads`
 missing encryption). The fix is a one-line addition to the storage

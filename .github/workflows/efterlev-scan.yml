@@ -74,6 +74,18 @@ jobs:
         # not the dir.)
         run: efterlev init --target . --force
 
+      - name: efterlev boundary set
+        # Declare the FedRAMP authorization boundary for this run. The
+        # `dev_sandbox/` subtree is scoped OUT — its findings will be
+        # tagged `out_of_boundary` and dropped from the POA&M, even
+        # though detectors still surface them as Evidence. This makes
+        # the boundary-state path reproducible across CI runs (the
+        # config.toml itself is gitignored).
+        run: |
+          efterlev boundary set --target . \
+            --include 'infra/terraform/**' \
+            --exclude 'infra/terraform/dev_sandbox/**'
+
       - name: efterlev doctor
         # Pre-flight diagnostics — Python, workspace, FRMR cache,
         # ANTHROPIC_API_KEY shape. No network calls. Output is for

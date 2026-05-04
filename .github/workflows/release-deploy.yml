@@ -1,0 +1,88 @@
+name: release-deploy
+
+# Production deploy on tag push. Deliberately MIXED deploy pattern:
+# the workflow's primary action is a declarative `terraform apply`,
+# but a follow-up `aws s3 cp` step copies pre-built static assets to
+# the public bucket — that's an imperative mutation outside the
+# Terraform-managed surface. Real-world pattern: the asset bundling
+# isn't (yet) wrapped into Terraform, so deploys are mostly-but-not-
+# fully-immutable. The immutable_deploy_patterns detector should
+# surface this as partial.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write  # for AWS OIDC
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: terraform apply + asset sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/govnotes-deploy
+          aws-region: us-east-1
+
+      - name: Set up Terraform
+        # Pinned to a tag rather than a SHA — the action-pinning
+        # detector should classify this workflow as PARTIAL pin posture
+        # (some SHA-pinned steps below, this one pinned by tag).
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+
+      - name: terraform init
+        working-directory: infra/terraform
+        run: terraform init
+
+      - name: terraform plan
+        working-directory: infra/terraform
+        run: terraform plan -out tfplan.bin
+
+      - name: terraform apply (declarative deploy)
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve tfplan.bin
+
+      # Imperative mutation — the static assets aren't yet managed by
+      # Terraform. Tracked in DELIBERATE_GAPS.md as a partial against
+      # KSI-CMT-RMV (Redeploy vs Modify). Once the asset bundling lands
+      # under Terraform, this step goes away and the workflow becomes
+      # cleanly declarative.
+      - name: Sync static assets to S3
+        run: |
+          aws s3 sync ./app/static-assets/ \
+            s3://govnotes-static-assets-prod/ \
+            --delete \
+            --cache-control 'public, max-age=86400'
+
+      - name: Notify deploy channel
+        # Pinned by SHA — example of correct supply-chain posture for
+        # third-party actions. Mixed with the tag-pinned setup-terraform
+        # above gives the action-pinning detector a partial signal.
+        uses: slackapi/slack-github-action@b0fa283ad8fea605de13dc3f449259339835fc52
+        with:
+          payload: |
+            {
+              "text": "Govnotes deploy: ${{ github.ref_name }} → production (${{ job.status }})"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
