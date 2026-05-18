@@ -1,0 +1,160 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Govnotes FedRAMP boundary — observability layer.
+  CloudTrail (multi-region, with log-file validation DISABLED — deliberate
+  gap), CloudWatch log groups (mixed retention/CMK posture — deliberate
+  gap), VPC flow logs to CloudWatch.
+  Mirrors infra/terraform/logging.tf.
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: govnotes-fedramp-prod
+
+  Environment:
+    Type: String
+    Default: prod
+
+  CloudtrailBucketSuffix:
+    Type: String
+    Default: a1b2c3d4
+
+Resources:
+  # --- CloudTrail bucket (KMS, versioning, public-block) ------------------
+
+  CloudtrailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-cloudtrail-${CloudtrailBucketSuffix}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID:
+                Fn::ImportValue: !Sub ${EnvName}-logs-cmk-arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-cloudtrail
+        - Key: Purpose
+          Value: audit-logs
+
+  CloudtrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CloudtrailBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AWSCloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt CloudtrailBucket.Arn
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${EnvName}-trail
+          - Sid: AWSCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub ${CloudtrailBucket.Arn}/AWSLogs/${AWS::AccountId}/*
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+                aws:SourceArn: !Sub arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${EnvName}-trail
+
+  # --- CloudTrail (DELIBERATE GAP: log-file validation disabled) ----------
+  # Captures management events across all regions. Data events for S3
+  # and Lambda are deferred to the Q2 cost review; log-file validation
+  # is pending the SIEM pipeline work. KSI-MLA-OSM surfaces this as
+  # partial CloudTrail posture.
+
+  MainTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: CloudtrailBucketPolicy
+    Properties:
+      TrailName: !Sub ${EnvName}-trail
+      S3BucketName: !Ref CloudtrailBucket
+      IncludeGlobalServiceEvents: true
+      IsMultiRegionTrail: true
+      IsLogging: true
+      EnableLogFileValidation: false
+      KMSKeyId:
+        Fn::ImportValue: !Sub ${EnvName}-logs-cmk-arn
+      EventSelectors:
+        - ReadWriteType: All
+          IncludeManagementEvents: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-trail
+
+  # --- VPC flow logs log group (KMS, 365-day retention) -------------------
+
+  VpcFlowLogsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /govnotes/${Environment}/vpc-flow-logs
+      RetentionInDays: 365
+      KmsKeyId:
+        Fn::ImportValue: !Sub ${EnvName}-logs-cmk-arn
+
+  # --- App runtime log group (clean posture) ------------------------------
+
+  AppRuntimeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /govnotes/${Environment}/app-runtime
+      RetentionInDays: 365
+      KmsKeyId:
+        Fn::ImportValue: !Sub ${EnvName}-logs-cmk-arn
+
+  # --- Experiments log group (DELIBERATE GAP: no retention) ---------------
+  # Created during a debugging push and never had retention configured.
+  # KSI-MLA-LET surfaces this as partial retention posture.
+
+  ExperimentsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /govnotes/${Environment}/experiments
+      # No RetentionInDays — defaults to never-expire.
+      KmsKeyId:
+        Fn::ImportValue: !Sub ${EnvName}-logs-cmk-arn
+
+  # --- Integrations log group (DELIBERATE GAP: no CMK) --------------------
+  # Partner-integration debug data was deemed low-sensitivity and the
+  # team punted on key configuration. KSI-MLA-LET surfaces this as
+  # partial encryption posture.
+
+  IntegrationsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /govnotes/${Environment}/integrations
+      RetentionInDays: 30
+      # No KmsKeyId — deliberate gap.
+
+  # --- VPC flow log -------------------------------------------------------
+
+  VpcFlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      ResourceType: VPC
+      ResourceId: !ImportValue
+        Fn::Sub: ${EnvName}-vpc-id
+      TrafficType: ALL
+      LogDestinationType: cloud-watch-logs
+      LogGroupName: !Ref VpcFlowLogsLogGroup
+      DeliverLogsPermissionArn: !ImportValue
+        Fn::Sub: ${EnvName}-flow-logs-role-arn
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-vpc-flow-logs

@@ -10,8 +10,12 @@ Every gap below is:
 
 - **Realistic.** It mirrors a mistake a distracted engineering team
   would plausibly make during a real FedRAMP 20x build-out.
-- **Scoped.** Only the production boundary (`infra/terraform/`) is
-  ground-truthed here. The `infra/environments/staging/` environment
+- **Scoped.** The production boundary is ground-truthed across BOTH
+  IaC representations: `infra/terraform/` (the authoritative source)
+  and `infra/cloudformation/` (the mirror added to prove Efterlev's
+  IaC-agnostic scanning). Each gap below appears in BOTH; the
+  CloudFormation cross-reference table below maps each TF location to
+  its CFN counterpart. The `infra/environments/staging/` environment
   is intentionally looser and is out of scope for this document — see
   its own README.
 - **Classified.** Each gap is labeled `not implemented` or
@@ -25,6 +29,40 @@ Line numbers are approximate — they reflect file state at the time of
 writing and will drift with edits. Resource names are the stable
 anchor. Detector ids use a capability shape (`aws.<capability>`) that
 maps to the Efterlev detector responsible for the finding.
+
+## CloudFormation cross-reference
+
+Each gap below has a paired entry in `infra/cloudformation/`. The
+CFN representation uses CamelCase resource names; the gap shape (no
+encryption block, no rotation rule, missing public-access-block
+fields, etc.) is preserved exactly so Efterlev classifications stay
+consistent across the two IaC paths.
+
+| TF resource                                                    | CFN equivalent                                                    |
+| -------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `aws_s3_bucket "user_uploads"` (storage module)                | `03-storage.yaml` UserUploadsBucket (no `BucketEncryption`)       |
+| `aws_kms_key "assets"` (rotation disabled)                     | `02-kms.yaml` AssetsCmk (`EnableKeyRotation: false`)              |
+| `aws_kms_key "reports"` (broad account-wide policy)            | `02-kms.yaml` ReportsCmk (`Principal: AWS: "*"`)                  |
+| `aws_secretsmanager_secret "db_url"` (no rotation)             | `04-data.yaml` DbUrlSecret (no `RotationRules`)                   |
+| `aws_secretsmanager_secret "jwt_signing_key"` (no rotation)    | `04-data.yaml` JwtSigningKeySecret (no `RotationRules`)           |
+| `aws_lb_listener "http"` (port 80, fixed-404, no redirect)     | `06-loadbalancer.yaml` HttpListener (`fixed-response 404`)        |
+| `aws_lb_listener "legacy_api"` (TLS-2016-08 policy)            | `06-loadbalancer.yaml` LegacyApiListener (`ELBSecurityPolicy-2016-08`) |
+| `aws_iam_user "ci_deploy"` + `aws_iam_access_key`              | `07-iam.yaml` CiDeployUser + CiDeployAccessKey                    |
+| `aws_iam_role_policy_attachment "legacy_break_glass_admin"`    | `07-iam.yaml` LegacyBreakGlassRole (AdministratorAccess)          |
+| `aws_iam_policy "readonly_auditor"` (no MFA condition)         | `07-iam.yaml` ReadonlyAuditorPolicy (no MFA condition)            |
+| `aws_iam_policy "data_ops"` (R/W without MFA)                  | `07-iam.yaml` DataOpsRole (R/W without MFA condition)             |
+| `aws_ebs_volume "bastion_scratch"` (unencrypted)               | `05-compute.yaml` BastionScratchVolume (`Encrypted: false`)       |
+| `aws_cloudtrail "main"` (log-file validation disabled)         | `08-logging.yaml` MainTrail (`EnableLogFileValidation: false`)    |
+| `aws_cloudwatch_log_group "experiments"` (no retention)        | `08-logging.yaml` ExperimentsLogGroup (no `RetentionInDays`)      |
+| `aws_cloudwatch_log_group "integrations"` (no CMK)             | `08-logging.yaml` IntegrationsLogGroup (no `KmsKeyId`)            |
+| `aws_s3_bucket "legacy_export"` (no encryption block)          | `03-storage.yaml` LegacyExportBucket (no `BucketEncryption`)      |
+| `aws_s3_bucket "temp_data_pipeline"` (no encryption, no PAB)   | `03-storage.yaml` TempDataPipelineBucket (no encryption, no PAB)  |
+| `aws_s3_bucket_public_access_block "ml_training_data"` (partial) | `03-storage.yaml` MlTrainingDataBucket (only 2 of 4 fields)     |
+| `aws_s3_bucket "internal_reports"` (no versioning)             | `03-storage.yaml` InternalReportsBucket (no `VersioningConfiguration`) |
+
+When you add/remove/edit a gap, update BOTH IaC representations AND the
+per-gap entry below in the same commit so the ground truth stays
+consistent across the two paths.
 
 ---
 

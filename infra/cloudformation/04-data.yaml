@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Govnotes FedRAMP boundary — RDS primary + analytics databases,
+  Secrets Manager secrets, DB subnet group.
+  Mirrors the RDS + Secrets sections of infra/terraform/data.tf,
+  including the deliberate no-rotation gaps on db_url and
+  jwt_signing_key.
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: govnotes-fedramp-prod
+
+  DbInstanceClass:
+    Type: String
+    Default: db.t4g.large
+
+  DbAllocatedStorage:
+    Type: Number
+    Default: 200
+
+  DbUsername:
+    Type: String
+    Default: govnotes_app
+
+  DbPassword:
+    Type: String
+    NoEcho: true
+    Default: PLACEHOLDER_TO_ROTATE_VIA_SECRETS_MANAGER
+
+Resources:
+  # --- DB subnet group ----------------------------------------------------
+
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub ${EnvName}-db-subnets
+      DBSubnetGroupDescription: Govnotes app DB subnet group
+      SubnetIds:
+        # In a multi-stack deployment these would be Fn::ImportValue from
+        # the network stack. For static-scan purposes the literal subnet
+        # ids would resolve at deploy time.
+        - !ImportValue
+          Fn::Sub: ${EnvName}-private-data-subnet-id-a
+        - !ImportValue
+          Fn::Sub: ${EnvName}-private-data-subnet-id-b
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-db-subnets
+
+  # --- Secrets Manager: DB connection URL (DELIBERATE GAP: no rotation) ---
+  # Mirrors aws_secretsmanager_secret.db_url. No paired
+  # aws_secretsmanager_secret_rotation resource — KSI-SVC-VRI surfaces
+  # this as a rotation gap.
+
+  DbUrlSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${EnvName}/db-url
+      KmsKeyId:
+        Fn::ImportValue: !Sub ${EnvName}-app-cmk-arn
+      Description: Postgres connection URL for the app DB
+      # No RotationLambdaARN, no RotationRules — deliberate gap.
+
+  # --- Secrets Manager: JWT signing key (DELIBERATE GAP: no rotation) -----
+
+  JwtSigningKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${EnvName}/jwt-signing-key
+      KmsKeyId:
+        Fn::ImportValue: !Sub ${EnvName}-app-cmk-arn
+      Description: HMAC signing key for app-issued JWTs
+      # No RotationLambdaARN, no RotationRules — deliberate gap.
+
+  # --- RDS: primary app database ------------------------------------------
+
+  AppDb:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub ${EnvName}-app-db
+      Engine: postgres
+      EngineVersion: "15.6"
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: !Ref DbAllocatedStorage
+      MaxAllocatedStorage: 1000
+      StorageType: gp3
+      StorageEncrypted: true
+      KmsKeyId:
+        Fn::ImportValue: !Sub ${EnvName}-app-cmk-arn
+      DBName: govnotes
+      MasterUsername: !Ref DbUsername
+      MasterUserPassword: !Ref DbPassword
+      Port: 5432
+      MultiAZ: true
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups:
+        - !ImportValue
+          Fn::Sub: ${EnvName}-db-sg-id
+      BackupRetentionPeriod: 30
+      PreferredBackupWindow: 04:00-05:00
+      PreferredMaintenanceWindow: sun:05:30-sun:06:30
+      CopyTagsToSnapshot: true
+      DeletionProtection: true
+      EnablePerformanceInsights: true
+      PerformanceInsightsKMSKeyId:
+        Fn::ImportValue: !Sub ${EnvName}-app-cmk-arn
+      EnableCloudwatchLogsExports:
+        - postgresql
+        - upgrade
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-app-db
+
+  # --- RDS: analytics database --------------------------------------------
+  # Secondary Postgres the analytics team uses for the internal reporting
+  # dashboards. Loaded from the primary via a nightly ETL job. Not
+  # customer-facing and does not store regulated data.
+
+  AnalyticsDb:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub ${EnvName}-analytics-db
+      Engine: postgres
+      EngineVersion: "15.6"
+      DBInstanceClass: db.t4g.medium
+      AllocatedStorage: 100
+      StorageType: gp3
+      StorageEncrypted: true
+      KmsKeyId:
+        Fn::ImportValue: !Sub ${EnvName}-app-cmk-arn
+      DBName: analytics
+      MasterUsername: analytics_ro
+      MasterUserPassword: !Ref DbPassword
+      Port: 5432
+      MultiAZ: false
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups:
+        - !ImportValue
+          Fn::Sub: ${EnvName}-db-sg-id
+      BackupRetentionPeriod: 1
+      DeletionProtection: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-analytics-db
+
+Outputs:
+  AppDbArn:
+    Value: !Sub arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:db:${AppDb}
+    Export:
+      Name: !Sub ${EnvName}-app-db-arn
+
+  DbUrlSecretArn:
+    Value: !Ref DbUrlSecret
+    Export:
+      Name: !Sub ${EnvName}-db-url-secret-arn
+
+  JwtSigningKeySecretArn:
+    Value: !Ref JwtSigningKeySecret
+    Export:
+      Name: !Sub ${EnvName}-jwt-signing-key-secret-arn
