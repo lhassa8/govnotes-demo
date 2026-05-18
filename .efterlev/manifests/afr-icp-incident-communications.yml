@@ -1,0 +1,27 @@
+ksi: KSI-AFR-ICP
+name: Incident Communications Procedures
+evidence:
+  - type: attestation
+    statement: >
+      Govnotes follows a documented incident-communications playbook
+      governing customer, agency, and FedRAMP PMO notification during
+      qualifying incidents. The playbook lives at
+      docs/runbooks/incident-communications.md and defines four
+      incident-severity tiers, the notification-time SLA for each
+      (S0/S1: 1 hour to FedRAMP PMO + sponsoring agency, S2: 24 hours
+      to sponsoring agency, S3: monthly ConMon report only), the
+      designated notifiers (incident commander → CISO → sponsoring
+      agency AO contact), and the message templates kept under
+      docs/runbooks/incident-comms-templates/. Notification path is
+      tested quarterly via a tabletop with sponsoring-agency
+      participation; the most recent tabletop was 2026-03-12, debrief
+      at docs/runbooks/2026-03-tabletop-debrief.md, action items
+      tracked in Jira COMPL-447.
+    attested_by: ciso@govnotes.fed
+    attested_at: 2026-03-20
+    reviewed_at: 2026-03-20
+    next_review: 2026-09-20
+    supporting_docs:
+      - ./docs/runbooks/incident-communications.md
+      - ./docs/runbooks/incident-comms-templates/
+      - ./docs/runbooks/2026-03-tabletop-debrief.md

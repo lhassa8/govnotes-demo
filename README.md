@@ -16,14 +16,16 @@ expect to enter 3PAO assessment in Q1 2027.
 
 ```
 govnotes/
-├── app/                       Node.js / Express application source
-├── infra/terraform/           Terraform for the FedRAMP prod boundary
-├── infra/terraform/modules/   Shared modules (storage)
-├── infra/environments/staging Staging — NOT in the FedRAMP boundary
-├── docs/                      Architecture and compliance docs
-├── CHANGELOG.md               Running changelog for the boundary
-├── DELIBERATE_GAPS.md         Ground-truth list of known gaps
-└── .github/workflows/         CI: app tests, Terraform checks, compliance scan
+├── app/                          Node.js / Express application source
+├── infra/terraform/              Terraform for the FedRAMP prod boundary
+├── infra/terraform/modules/      Shared modules (storage)
+├── infra/cloudformation/         CloudFormation mirror of the same boundary
+├── infra/environments/staging    Staging — NOT in the FedRAMP boundary
+├── .efterlev/manifests/          Customer-authored procedural attestations
+├── docs/                         Architecture and compliance docs
+├── CHANGELOG.md                  Running changelog for the boundary
+├── DELIBERATE_GAPS.md            Ground-truth list of known gaps
+└── .github/workflows/            CI: app tests, Terraform checks, compliance scan
 ```
 
 ## What Govnotes the product does
@@ -72,6 +74,31 @@ FedRAMP AWS account. See `infra/terraform/README.md` for details.
 
 Do not run `terraform apply` against the FedRAMP account without going
 through the change-management process documented on the engineering wiki.
+
+## Scanning with Efterlev
+
+This repository is designed to be scanned with [Efterlev](https://efterlev.com),
+the FedRAMP 20x compliance scanner. The deliberate gaps in
+[`DELIBERATE_GAPS.md`](DELIBERATE_GAPS.md) are tuned to produce a realistic
+mid-journey gap report — a mix of `implemented`, `partial`,
+`not_implemented`, and procedural KSIs covered by the manifests under
+`.efterlev/manifests/`.
+
+```
+pipx install efterlev          # or: brew install pipx && pipx install efterlev
+efterlev init --target . --force
+efterlev boundary set --include 'infra/**' --include '.github/workflows/**' --include '.efterlev/manifests/**'
+efterlev report run --target .
+```
+
+The `boundary set` call declares the FedRAMP authorization boundary
+explicitly so the POA&M filter has scope to enforce. Without it, every
+finding lands in `boundary_undeclared` state. The three include patterns
+keep Terraform, CloudFormation, GitHub workflows, AND the procedural
+manifests all in scope.
+
+A full first run on this repo takes ~15–25 minutes (60 sequential KSI
+classifications). Re-runs replay from cache in seconds.
 
 ## Documentation
 

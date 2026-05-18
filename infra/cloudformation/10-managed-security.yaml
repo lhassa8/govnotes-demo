@@ -1,0 +1,194 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Govnotes FedRAMP boundary — managed security services.
+  GuardDuty, AccessAnalyzer, AWS Config (recorder + delivery channel +
+  starter rule set), WAFv2 web ACL associated with the app ALB, SAML
+  identity provider. These are the "green-state" resources — present
+  and correctly configured — that balance the deliberate gaps in the
+  rest of the boundary.
+  Mirrors infra/terraform/managed_security_services.tf.
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: govnotes-fedramp-prod
+
+  BucketSuffix:
+    Type: String
+    Default: a1b2c3d4
+
+Resources:
+  # --- GuardDuty ----------------------------------------------------------
+
+  GuardDutyDetector:
+    Type: AWS::GuardDuty::Detector
+    Properties:
+      Enable: true
+      FindingPublishingFrequency: FIFTEEN_MINUTES
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-guardduty
+
+  # --- AccessAnalyzer -----------------------------------------------------
+
+  AccessAnalyzer:
+    Type: AWS::AccessAnalyzer::Analyzer
+    Properties:
+      AnalyzerName: !Sub ${EnvName}-account-analyzer
+      Type: ACCOUNT
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-access-analyzer
+
+  # --- AWS Config: recorder + delivery channel + starter rules -----------
+
+  ConfigRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvName}-config-recorder
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: config.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWS_ConfigRole
+
+  ConfigHistoryBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-config-history-${BucketSuffix}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID:
+                Fn::ImportValue: !Sub ${EnvName}-logs-cmk-arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-config-history
+        - Key: Purpose
+          Value: config-recorder
+
+  ConfigRecorder:
+    Type: AWS::Config::ConfigurationRecorder
+    Properties:
+      Name: !Sub ${EnvName}-recorder
+      RoleARN: !GetAtt ConfigRole.Arn
+      RecordingGroup:
+        AllSupported: true
+        IncludeGlobalResourceTypes: true
+
+  ConfigDeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    DependsOn: ConfigRecorder
+    Properties:
+      Name: !Sub ${EnvName}-channel
+      S3BucketName: !Ref ConfigHistoryBucket
+
+  S3SseEnabledRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: !Sub ${EnvName}-s3-sse-enabled
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_SERVER_SIDE_ENCRYPTION_ENABLED
+
+  EncryptedVolumesRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: !Sub ${EnvName}-encrypted-volumes
+      Source:
+        Owner: AWS
+        SourceIdentifier: ENCRYPTED_VOLUMES
+
+  # --- WAFv2 web ACL ------------------------------------------------------
+
+  AppWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub ${EnvName}-app-waf
+      Description: Rate-limit + managed rules for the app ALB
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub ${EnvName}-app-waf
+        SampledRequestsEnabled: true
+      Rules:
+        - Name: rate-limit-100rps
+          Priority: 0
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              Limit: 6000
+              AggregateKeyType: IP
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: rate-limit-100rps
+            SampledRequestsEnabled: true
+        - Name: aws-common-rule-set
+          Priority: 1
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: aws-common-rule-set
+            SampledRequestsEnabled: true
+        - Name: aws-known-bad-inputs
+          Priority: 2
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: aws-known-bad-inputs
+            SampledRequestsEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-app-waf
+
+  AppWebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !ImportValue
+        Fn::Sub: ${EnvName}-app-alb-arn
+      WebACLArn: !GetAtt AppWebAcl.Arn
+
+  # --- SAML identity provider (Okta) --------------------------------------
+
+  OktaSamlProvider:
+    Type: AWS::IAM::SAMLProvider
+    Properties:
+      Name: !Sub ${EnvName}-okta
+      # In a real deployment this would be the metadata XML downloaded
+      # from the Okta admin console. Placeholder kept here for static
+      # scanning compatibility — see infra/terraform/saml-metadata.example.xml.
+      SamlMetadataDocument: |
+        <?xml version="1.0" encoding="UTF-8"?>
+        <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
+                             entityID="http://example.com/saml-idp">
+          <md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+            <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+                                    Location="https://example.okta.com/app/aws-fed/sso/saml"/>
+          </md:IDPSSODescriptor>
+        </md:EntityDescriptor>

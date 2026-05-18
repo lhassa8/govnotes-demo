@@ -1,0 +1,27 @@
+ksi: KSI-CED-DET
+name: Reviewing Development and Engineering Training
+evidence:
+  - type: attestation
+    statement: >
+      All Govnotes engineers (FTE + contractor) who touch the FedRAMP
+      production boundary complete the secure-engineering training
+      track within 30 days of access grant and refresh annually. The
+      track is administered through our Learning Management System
+      (Workramp) and covers: AWS Well-Architected Security pillar,
+      OWASP Top 10 for the app stack (Node/React/Postgres), least-
+      privilege IAM patterns, our internal threat-model template
+      (docs/security/threat-model-template.md), and incident-response
+      first-responder basics. Course completion is tracked in
+      Workramp and audited monthly; the platform-security team
+      reviews lagging completions in the monthly engineering
+      all-hands. Most recent completion audit landed 2026-04-01: 100%
+      of in-scope engineers (32 individuals) current within the past
+      12 months. Next audit cycle 2026-05-01.
+    attested_by: head-of-engineering@govnotes.fed
+    attested_at: 2026-04-01
+    reviewed_at: 2026-04-01
+    next_review: 2026-05-01
+    supporting_docs:
+      - ./docs/security/engineering-training-curriculum.md
+      - ./docs/security/threat-model-template.md
+      - https://workramp.com/govnotes/tracks/fedramp-engineering

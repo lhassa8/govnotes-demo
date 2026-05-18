@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Placeholder SAML metadata for the Okta SAML provider declared in
+  managed_security_services.tf. A real deployment would download the
+  metadata from the Okta admin console:
+    Admin → Applications → AWS account federation → Sign On →
+    Identity Provider metadata (link, then save as saml-metadata.xml
+    and remove the .example suffix).
+
+  The placeholder document below is syntactically valid SAML metadata
+  but uses dummy issuer/cert values. It exists so `terraform validate`
+  and the static-scan path don't fail on a missing-file error.
+-->
+<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
+                     entityID="http://example.com/saml-idp">
+  <md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+    <md:KeyDescriptor use="signing">
+      <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+        <ds:X509Data>
+          <ds:X509Certificate>PLACEHOLDER-BASE64-CERT</ds:X509Certificate>
+        </ds:X509Data>
+      </ds:KeyInfo>
+    </md:KeyDescriptor>
+    <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+                            Location="https://example.okta.com/app/aws-fed/sso/saml"/>
+  </md:IDPSSODescriptor>
+</md:EntityDescriptor>
