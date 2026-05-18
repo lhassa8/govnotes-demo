@@ -1,0 +1,32 @@
+ksi: KSI-PIY-RSD
+name: Reviewing Security in the SDLC
+evidence:
+  - type: attestation
+    statement: >
+      Security review is integrated into the Govnotes SDLC at three
+      gates: (1) design-stage threat modeling for every new system
+      component or significant change (template at
+      docs/security/threat-model-template.md; completed models live in
+      docs/security/threat-models/); (2) pre-merge automated security
+      checks via .github/workflows/security-gates.yml (semgrep,
+      bandit, npm audit, container image scan); (3) post-merge
+      compliance scan via .github/workflows/pr-compliance-scan.yml
+      which runs `efterlev report run` and gates merges on a clean
+      gap report for the production boundary. The SDLC security gates
+      are reviewed annually by the platform-security team against the
+      OWASP SAMM baseline (current SAMM maturity level 2 across
+      Verification + Implementation); next SAMM self-assessment is
+      scheduled for 2026-Q4. Threat-model coverage is verified
+      quarterly against the boundary inventory; the 2026-Q1 review
+      confirmed 100% coverage of the production boundary services and
+      flagged two missing models for the staging-only experiments
+      service (out of FedRAMP boundary, tracked separately).
+    attested_by: ciso@govnotes.fed
+    attested_at: 2026-04-08
+    reviewed_at: 2026-04-08
+    next_review: 2026-07-08
+    supporting_docs:
+      - ./docs/security/sdlc-security-gates.md
+      - ./docs/security/threat-model-template.md
+      - ./.github/workflows/security-gates.yml
+      - ./.github/workflows/pr-compliance-scan.yml

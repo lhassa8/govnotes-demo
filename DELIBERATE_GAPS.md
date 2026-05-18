@@ -64,6 +64,36 @@ When you add/remove/edit a gap, update BOTH IaC representations AND the
 per-gap entry below in the same commit so the ground truth stays
 consistent across the two paths.
 
+## Green-state resources (deliberate WINS that balance the gaps)
+
+The boundary intentionally includes a set of resources that exercise
+detectors the gaps above don't touch — they're "wins" that flip the
+corresponding KSIs from `not_implemented` to `implemented`. They live
+in `infra/terraform/managed_security_services.tf` and the equivalent
+`infra/cloudformation/10-managed-security.yaml`:
+
+- `aws_guardduty_detector "main"` (CFN: `GuardDutyDetector`) →
+  KSI-INR-RIR, KSI-MLA-LET. Region-level threat detection enabled.
+- `aws_accessanalyzer_analyzer "main"` (CFN: `AccessAnalyzer`) →
+  KSI-IAM-AAM, KSI-IAM-ELP. Account-scoped external-access analyzer.
+- `aws_config_configuration_recorder` + `aws_config_delivery_channel`
+  + 2 managed rules (CFN: `ConfigRecorder` + `ConfigDeliveryChannel`
+  + `S3SseEnabledRule` + `EncryptedVolumesRule`) → KSI-SVC-ACM.
+  Continuous configuration evaluation enabled, rule set deliberately
+  small (a real team enables a starter set and expands quarterly).
+- `aws_wafv2_web_acl "app"` + association with the app ALB (CFN:
+  `AppWebAcl` + `AppWebAclAssociation`) → KSI-CNA-DFP (DoS protection),
+  KSI-SVC-ACM. Rate-limit + AWS Common Rule Set + Known Bad Inputs
+  managed group. Geo-blocking deliberately deferred.
+- `aws_iam_saml_provider "okta"` (CFN: `OktaSamlProvider`) →
+  KSI-IAM-MFA, KSI-IAM-AAM. SAML federation for the corporate IdP.
+
+These exist so the gap report shows a realistic mix of green / yellow /
+red rather than 0% implemented. The procedural manifests in
+`.efterlev/manifests/` provide the same balancing function for the
+procedural-evidence themes (AFR / CED / INR / PIY) which the IaC
+scanner can't evaluate directly.
+
 ---
 
 ## Binary gaps — "not implemented"

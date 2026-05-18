@@ -127,3 +127,8 @@ Outputs:
     Value: !Ref AppTargetGroup
     Export:
       Name: !Sub ${EnvName}-app-tg-arn
+
+  AppAlbArn:
+    Value: !Ref AppAlb
+    Export:
+      Name: !Sub ${EnvName}-app-alb-arn

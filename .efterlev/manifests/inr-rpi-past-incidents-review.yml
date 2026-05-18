@@ -1,0 +1,27 @@
+ksi: KSI-INR-RPI
+name: Reviewing Past Incidents
+evidence:
+  - type: attestation
+    statement: >
+      Govnotes reviews every confirmed past incident in the production
+      boundary on a quarterly cadence. The review is owned by the CISO
+      and uses incident records pulled from PagerDuty + our internal
+      incident-management system (incident-2025-* and incident-2026-*
+      records). For each reviewed incident the team confirms: root
+      cause is documented, remediation has shipped (or is tracked in
+      Jira with an owner + target date), the after-action report
+      (AAR — see KSI-INR-AAR manifest) has been published, and any
+      controls touched by the incident have been re-verified via the
+      relevant Efterlev detector or by manual sign-off. The quarterly
+      review output lands at docs/runbooks/conmon/2026-Q1-incident-
+      review.md (the 2026-Q2 review is in flight, due 2026-07-15).
+      Aggregate trend analysis is included in each ConMon report so
+      the sponsoring agency sees recurring categories.
+    attested_by: ciso@govnotes.fed
+    attested_at: 2026-04-30
+    reviewed_at: 2026-04-30
+    next_review: 2026-07-30
+    supporting_docs:
+      - ./docs/runbooks/conmon/2026-Q1-incident-review.md
+      - ./docs/runbooks/incident-review-process.md
+      - https://wiki.govnotes.fed/security/quarterly-incident-review

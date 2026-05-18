@@ -1,0 +1,27 @@
+ksi: KSI-AFR-CCM
+name: Collaborative Continuous Monitoring
+evidence:
+  - type: attestation
+    statement: >
+      Govnotes participates in the FedRAMP collaborative continuous
+      monitoring (CCM) process with our sponsoring agency. CCM
+      deliverables are produced monthly: the POA&M update is generated
+      via `efterlev poam` against the production boundary, the OSCAL
+      POA&M JSON is exported via `efterlev oscal export --kind poam` and
+      uploaded to the agency's RegScale OSCAL Hub instance on the first
+      business day of each month. The 3PAO subscribes to the same hub
+      and reviews each delivery within 5 business days; their
+      comment-resolution lifecycle is tracked in our internal Jira
+      project COMPL. Vulnerability scan results from the boundary
+      (Inspector + Guard Duty + Security Hub feeds, scanned weekly via
+      the platform-security pipeline at .github/workflows/security-hub-pull.yml)
+      flow into the same monthly package. The CCM cadence and shared
+      escalation matrix is documented at docs/compliance/ccm-process.md.
+    attested_by: ciso@govnotes.fed
+    attested_at: 2026-04-22
+    reviewed_at: 2026-04-22
+    next_review: 2026-07-22
+    supporting_docs:
+      - ./docs/compliance/ccm-process.md
+      - ./docs/runbooks/monthly-conmon.md
+      - https://wiki.govnotes.fed/compliance/ccm-monthly-cadence
