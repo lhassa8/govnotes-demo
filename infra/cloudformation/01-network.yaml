@@ -1,0 +1,362 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Govnotes FedRAMP boundary — network layer.
+  VPC, subnets (public/app/data x 2 AZs), NAT, route tables, baseline
+  security groups. Mirrors infra/terraform/network.tf.
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: govnotes-fedramp-prod
+    Description: Name prefix tagged on all resources.
+
+  VpcCidr:
+    Type: String
+    Default: 10.42.0.0/16
+    Description: VPC CIDR block. Subnets are carved /20.
+
+Mappings:
+  # Manual subnet allocation — CloudFormation has no Terraform-style
+  # cidrsubnet() so we lay these out explicitly. Two AZs keeps the
+  # template readable; the Terraform side uses three AZs via for_each.
+  Subnets:
+    PublicA:
+      Cidr: 10.42.0.0/20
+      Az: us-east-1a
+    PublicB:
+      Cidr: 10.42.16.0/20
+      Az: us-east-1b
+    PrivateAppA:
+      Cidr: 10.42.64.0/20
+      Az: us-east-1a
+    PrivateAppB:
+      Cidr: 10.42.80.0/20
+      Az: us-east-1b
+    PrivateDataA:
+      Cidr: 10.42.128.0/20
+      Az: us-east-1a
+    PrivateDataB:
+      Cidr: 10.42.144.0/20
+      Az: us-east-1b
+
+Resources:
+  # --- VPC + IGW ----------------------------------------------------------
+
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-igw
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  # --- Subnets: public / private-app / private-data x 2 AZs ----------------
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [Subnets, PublicA, Cidr]
+      AvailabilityZone: !FindInMap [Subnets, PublicA, Az]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-public-us-east-1a
+        - Key: Tier
+          Value: public
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [Subnets, PublicB, Cidr]
+      AvailabilityZone: !FindInMap [Subnets, PublicB, Az]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-public-us-east-1b
+        - Key: Tier
+          Value: public
+
+  PrivateAppSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [Subnets, PrivateAppA, Cidr]
+      AvailabilityZone: !FindInMap [Subnets, PrivateAppA, Az]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-private-app-us-east-1a
+        - Key: Tier
+          Value: private-app
+
+  PrivateAppSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [Subnets, PrivateAppB, Cidr]
+      AvailabilityZone: !FindInMap [Subnets, PrivateAppB, Az]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-private-app-us-east-1b
+        - Key: Tier
+          Value: private-app
+
+  PrivateDataSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [Subnets, PrivateDataA, Cidr]
+      AvailabilityZone: !FindInMap [Subnets, PrivateDataA, Az]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-private-data-us-east-1a
+        - Key: Tier
+          Value: private-data
+
+  PrivateDataSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [Subnets, PrivateDataB, Cidr]
+      AvailabilityZone: !FindInMap [Subnets, PrivateDataB, Az]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-private-data-us-east-1b
+        - Key: Tier
+          Value: private-data
+
+  # --- NAT gateways (one per AZ, in the public subnets) --------------------
+
+  NatEipA:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-nat-eip-us-east-1a
+
+  NatEipB:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-nat-eip-us-east-1b
+
+  NatGatewayA:
+    Type: AWS::EC2::NatGateway
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      AllocationId: !GetAtt NatEipA.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-nat-us-east-1a
+
+  NatGatewayB:
+    Type: AWS::EC2::NatGateway
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      AllocationId: !GetAtt NatEipB.AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-nat-us-east-1b
+
+  # --- Route tables --------------------------------------------------------
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-rt-public
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicRouteAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicRouteAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateAppRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-rt-private-app-us-east-1a
+
+  PrivateAppDefaultRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateAppRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayA
+
+  PrivateAppRouteAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateAppSubnetA
+      RouteTableId: !Ref PrivateAppRouteTableA
+
+  PrivateAppRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-rt-private-app-us-east-1b
+
+  PrivateAppDefaultRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateAppRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayB
+
+  PrivateAppRouteAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateAppSubnetB
+      RouteTableId: !Ref PrivateAppRouteTableB
+
+  # --- Security groups -----------------------------------------------------
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${EnvName}-alb-sg
+      GroupDescription: Public ingress to the app ALB
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS from the internet
+        # TODO(platform): wire the :80 listener to permanent-redirect to :443.
+        # Today the listener just drops the connection, which is fine, but we
+        # should make it an explicit redirect so health-check tooling behaves.
+        # This matches the deliberate gap in infra/terraform/network.tf.
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP from the internet (placeholder, see TODO)
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All egress
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-alb-sg
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${EnvName}-app-sg
+      GroupDescription: App service tasks
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+          Description: App port from the ALB
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All egress
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-app-sg
+
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${EnvName}-db-sg
+      GroupDescription: Primary app DB
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: Postgres from app tier
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-db-sg
+
+Outputs:
+  VpcId:
+    Description: VPC id for downstream templates
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub ${EnvName}-vpc-id
+
+  PublicSubnetIds:
+    Description: Public subnet ids (comma-separated)
+    Value: !Sub ${PublicSubnetA},${PublicSubnetB}
+    Export:
+      Name: !Sub ${EnvName}-public-subnet-ids
+
+  PrivateAppSubnetIds:
+    Description: Private app subnet ids (comma-separated)
+    Value: !Sub ${PrivateAppSubnetA},${PrivateAppSubnetB}
+    Export:
+      Name: !Sub ${EnvName}-private-app-subnet-ids
+
+  PrivateDataSubnetIds:
+    Description: Private data subnet ids (comma-separated)
+    Value: !Sub ${PrivateDataSubnetA},${PrivateDataSubnetB}
+    Export:
+      Name: !Sub ${EnvName}-private-data-subnet-ids
+
+  AlbSecurityGroupId:
+    Description: ALB security group id
+    Value: !Ref AlbSecurityGroup
+    Export:
+      Name: !Sub ${EnvName}-alb-sg-id
+
+  AppSecurityGroupId:
+    Description: App tasks security group id
+    Value: !Ref AppSecurityGroup
+    Export:
+      Name: !Sub ${EnvName}-app-sg-id
+
+  DbSecurityGroupId:
+    Description: DB security group id
+    Value: !Ref DbSecurityGroup
+    Export:
+      Name: !Sub ${EnvName}-db-sg-id
