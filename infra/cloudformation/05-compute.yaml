@@ -1,0 +1,194 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Govnotes FedRAMP boundary — compute layer.
+  ECS Fargate cluster + app service + task definitions, plus bastion
+  EC2 + secondary scratch EBS volume.
+  Mirrors infra/terraform/compute.tf, including the deliberate
+  bastion-scratch unencrypted-EBS gap.
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: govnotes-fedramp-prod
+
+  Environment:
+    Type: String
+    Default: prod
+
+  AppImage:
+    Type: String
+    Default: 590183808443.dkr.ecr.us-east-1.amazonaws.com/govnotes-app:latest
+    Description: ECR image URI for the app container.
+
+  BastionAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI for the bastion. Use the latest AL2023 in this region.
+
+Resources:
+  # --- ECS cluster --------------------------------------------------------
+
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${EnvName}-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-cluster
+
+  # --- App CloudWatch log group (KMS-encrypted, 365-day retention) --------
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /govnotes/${Environment}/app
+      RetentionInDays: 365
+      KmsKeyId:
+        Fn::ImportValue: !Sub ${EnvName}-app-cmk-arn
+
+  # --- App task definition (Fargate) --------------------------------------
+
+  AppTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${EnvName}-app
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: "1024"
+      Memory: "2048"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub ${EnvName}-ecs-task-execution-role-arn
+      TaskRoleArn:
+        Fn::ImportValue: !Sub ${EnvName}-app-task-role-arn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref AppImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: PORT
+              Value: "3000"
+            - Name: LOG_LEVEL
+              Value: info
+          Secrets:
+            - Name: DATABASE_URL
+              ValueFrom:
+                Fn::ImportValue: !Sub ${EnvName}-db-url-secret-arn
+            - Name: JWT_SIGNING_KEY
+              ValueFrom:
+                Fn::ImportValue: !Sub ${EnvName}-jwt-signing-key-secret-arn
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AppLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: app
+
+  # --- ECS service --------------------------------------------------------
+
+  AppService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub ${EnvName}-app
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref AppTaskDefinition
+      DesiredCount: 3
+      LaunchType: FARGATE
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !ImportValue
+              Fn::Sub: ${EnvName}-private-app-subnet-id-a
+            - !ImportValue
+              Fn::Sub: ${EnvName}-private-app-subnet-id-b
+          SecurityGroups:
+            - !ImportValue
+              Fn::Sub: ${EnvName}-app-sg-id
+          AssignPublicIp: DISABLED
+      LoadBalancers:
+        - TargetGroupArn:
+            Fn::ImportValue: !Sub ${EnvName}-app-tg-arn
+          ContainerName: app
+          ContainerPort: 3000
+
+  # --- Bastion security group (egress-only, SSM-managed) ------------------
+
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${EnvName}-bastion-sg
+      GroupDescription: Break-glass bastion. SSM-only, no inbound.
+      VpcId: !ImportValue
+        Fn::Sub: ${EnvName}-vpc-id
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All egress
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-bastion-sg
+
+  # --- Bastion EC2 instance (IMDSv2 required, encrypted root) -------------
+
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref BastionAmiId
+      InstanceType: t3.small
+      SubnetId: !ImportValue
+        Fn::Sub: ${EnvName}-private-app-subnet-id-a
+      SecurityGroupIds:
+        - !Ref BastionSecurityGroup
+      IamInstanceProfile: !ImportValue
+        Fn::Sub: ${EnvName}-bastion-instance-profile
+      Monitoring: true
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: 20
+            Encrypted: true
+            KmsKeyId:
+              Fn::ImportValue: !Sub ${EnvName}-app-cmk-arn
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-bastion
+        - Key: Role
+          Value: bastion
+
+  # --- Bastion scratch EBS (DELIBERATE GAP: unencrypted) ------------------
+  # Secondary scratch volume the on-call engineer uses to stage pg_dump
+  # output during break-glass. Re-created fresh each incident.
+  # TODO(platform): re-provision this with encryption on; leftover from
+  # the pre-FedRAMP build of the jumphost.
+
+  BastionScratchVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: us-east-1a
+      Size: 50
+      VolumeType: gp3
+      Encrypted: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-bastion-scratch
+
+  BastionScratchAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/sdf
+      InstanceId: !Ref BastionInstance
+      VolumeId: !Ref BastionScratchVolume

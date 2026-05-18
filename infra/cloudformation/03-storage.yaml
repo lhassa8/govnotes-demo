@@ -1,0 +1,250 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Govnotes FedRAMP boundary — S3 buckets.
+  Mirrors infra/terraform/s3.tf — 6 buckets at varying maturity. The
+  set is intentionally mixed because real mid-journey FedRAMP posture
+  isn't binary — different teams ship bucket configurations on
+  different timelines.
+
+  Coverage table (deliberate gaps, see DELIBERATE_GAPS.md):
+
+    bucket              encryption  kms_key       public_block  versioning
+    ----------------    ----------  -----------   ------------  ----------
+    AppUploadsBucket    aws:kms     CMK (app)     all=true      enabled
+    StaticAssetsBucket  AES256      AWS-managed   all=true      enabled
+    InternalReports     aws:kms     CMK (reports) all=true      MISSING
+    MlTrainingData      AES256      AWS-managed   PARTIAL       MISSING
+    LegacyExport        MISSING     -             all=true      MISSING
+    TempDataPipeline    MISSING     -             MISSING       MISSING
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: govnotes-fedramp-prod
+
+  BucketSuffix:
+    Type: String
+    Description: Random suffix to make bucket names globally unique.
+    Default: a1b2c3d4
+
+Resources:
+  # --- bucket 1: AppUploads — fully posture-compliant ---------------------
+
+  AppUploadsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-app-uploads-${BucketSuffix}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID:
+                Fn::ImportValue: !Sub ${EnvName}-app-cmk-arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-app-uploads
+        - Key: DataClassification
+          Value: moderate
+
+  # --- bucket 2: StaticAssets — encrypted but with AWS-managed key --------
+  # AWS-managed keys (SSEAlgorithm: AES256) are KMS-encrypted but not
+  # customer-controlled. KSI-SVC-PRR wants CMKs on data assets; this one
+  # is borderline because static assets are public-read content with no
+  # data classification. Documented as partial.
+
+  StaticAssetsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-static-assets-${BucketSuffix}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-static-assets
+        - Key: DataClassification
+          Value: public
+
+  # --- bucket 3: InternalReports — CMK + public-block, missing versioning -
+  # (finance team requested current-only semantics for cost; tracked as a
+  # partial in DELIBERATE_GAPS)
+
+  InternalReportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-internal-reports-${BucketSuffix}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID:
+                Fn::ImportValue: !Sub ${EnvName}-reports-cmk-arn
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # No VersioningConfiguration — deliberate gap.
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-internal-reports
+        - Key: DataClassification
+          Value: moderate
+
+  # --- bucket 4: MlTrainingData — encrypted, public-block PARTIAL --------
+  # BlockPublicAcls + IgnorePublicAcls only. BlockPublicPolicy and
+  # RestrictPublicBuckets left default (= false). Surfaces as partial
+  # public-access-block posture rather than a binary gap.
+
+  MlTrainingDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-ml-training-${BucketSuffix}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        # BlockPublicPolicy + RestrictPublicBuckets intentionally omitted;
+        # ML team needs cross-account reads from a partner-bucket ARN.
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-ml-training
+        - Key: DataClassification
+          Value: low
+
+  # --- bucket 5: LegacyExport — NO encryption, public-block ✓ -------------
+  # Pre-2025 bucket carrying nightly export dumps for the reporting
+  # partner. Encryption was never enabled because the partner consumes
+  # unencrypted CSVs and we punted on a re-export pipeline.
+
+  LegacyExportBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-legacy-export-${BucketSuffix}
+      # No BucketEncryption — deliberate gap.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-legacy-export
+        - Key: DataClassification
+          Value: moderate
+
+  # --- bucket 6: TempDataPipeline — NO encryption AND NO public-block ----
+  # Dev-team pipeline scratch bucket. Uses a 7-day lifecycle expiration
+  # (defined in app code, not infra), so contents churn weekly. Surfaces
+  # both encryption gap AND public-block gap.
+
+  TempDataPipelineBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-temp-pipeline-${BucketSuffix}
+      # No BucketEncryption; no PublicAccessBlockConfiguration; no Versioning.
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-temp-pipeline
+        - Key: DataClassification
+          Value: internal
+
+  # --- bucket 7: UserUploads — DELIBERATE no-SSE gap ----------------------
+  # Mirrors the storage-module `user_uploads` entry in data.tf. The
+  # bucket is created and has PublicAccessBlock applied, but the module's
+  # encryption guard (`if v.kms_key_arn != null || v.sse_s3`) skips the
+  # SSE resource because neither field was set on this bucket. New
+  # objects are stored unencrypted. KSI-SVC-VRI / SC-28.
+
+  UserUploadsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-user-uploads-${BucketSuffix}
+      # No BucketEncryption — deliberate gap, see DELIBERATE_GAPS.md #1.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-user-uploads
+        - Key: Purpose
+          Value: customer-attachments
+
+  # --- bucket 8: Artifacts — build artifacts, CMK + versioning -----------
+
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-artifacts-${BucketSuffix}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID:
+                Fn::ImportValue: !Sub ${EnvName}-app-cmk-arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-artifacts
+        - Key: Purpose
+          Value: build-artifacts
+
+  # --- bucket 9: Backups — used by ALB access logs + DB exports ---------
+
+  BackupsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvName}-backups-${BucketSuffix}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID:
+                Fn::ImportValue: !Sub ${EnvName}-app-cmk-arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-backups
+        - Key: Purpose
+          Value: point-in-time-backups
+
+Outputs:
+  BackupsBucketName:
+    Value: !Ref BackupsBucket
+    Export:
+      Name: !Sub ${EnvName}-backups-bucket

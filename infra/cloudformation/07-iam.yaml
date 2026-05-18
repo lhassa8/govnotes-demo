@@ -1,0 +1,367 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Govnotes FedRAMP boundary — IAM roles, groups, policies, plus the
+  legacy CI user and break-glass admin role.
+  Mirrors infra/terraform/iam.tf, preserving the multiple deliberate
+  gaps documented in DELIBERATE_GAPS.md (legacy long-lived access key,
+  AdministratorAccess on break-glass role, missing MFA on several
+  policies, broad data_ops read/write).
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: govnotes-fedramp-prod
+
+Resources:
+  # --- ECS task execution role + extras -----------------------------------
+
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvName}-ecs-task-execution
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  EcsTaskExecutionExtrasPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${EnvName}-ecs-task-execution-extras
+      Roles:
+        - !Ref EcsTaskExecutionRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadAppSecrets
+            Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+            Resource:
+              - !ImportValue
+                Fn::Sub: ${EnvName}-db-url-secret-arn
+              - !ImportValue
+                Fn::Sub: ${EnvName}-jwt-signing-key-secret-arn
+          - Sid: DecryptAppKMS
+            Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+            Resource:
+              - !ImportValue
+                Fn::Sub: ${EnvName}-app-cmk-arn
+
+  # --- App task role (runtime permissions for the running container) -----
+
+  AppTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvName}-app-task
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: app-task-permissions
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteUserUploads
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${EnvName}-user-uploads-*
+                  - !Sub arn:aws:s3:::${EnvName}-user-uploads-*/*
+
+  # --- Bastion instance profile -------------------------------------------
+
+  BastionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvName}-bastion
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  BastionInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub ${EnvName}-bastion
+      Roles:
+        - !Ref BastionRole
+
+  # --- Human groups (MFA-enforced where reachable) ------------------------
+
+  PlatformAdminsGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: !Sub ${EnvName}-platform-admins
+
+  ReadonlyAuditorsGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: !Sub ${EnvName}-readonly-auditors
+
+  PlatformAdminPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${EnvName}-platform-admin
+      Groups:
+        - !Ref PlatformAdminsGroup
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AdminActions
+            Effect: Allow
+            Action:
+              - ec2:*
+              - ecs:*
+              - rds:*
+              - s3:*
+              - iam:Get*
+              - iam:List*
+              - kms:Describe*
+              - kms:List*
+            Resource: "*"
+            Condition:
+              Bool:
+                aws:MultiFactorAuthPresent: "true"
+
+  # --- ReadOnly auditor policy (DELIBERATE GAP: no MFA condition) ---------
+  # Predates the MFA-enforcement rollout; revisit as part of the IA-2
+  # cleanup epic. Surfaces in KSI-IAM-MFA as partial.
+
+  ReadonlyAuditorPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${EnvName}-readonly-auditor
+      Groups:
+        - !Ref ReadonlyAuditorsGroup
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadOnlyAudit
+            Effect: Allow
+            Action:
+              - ec2:Describe*
+              - ecs:Describe*
+              - ecs:List*
+              - rds:Describe*
+              - s3:GetBucketLocation
+              - s3:GetBucketPolicy
+              - s3:GetBucketTagging
+              - s3:ListAllMyBuckets
+              - iam:Get*
+              - iam:List*
+              - cloudtrail:LookupEvents
+              - logs:Describe*
+              - logs:Get*
+              - logs:FilterLogEvents
+            Resource: "*"
+
+  # --- Data-ops role (DELIBERATE GAP: read/write without MFA) -------------
+  # MFA is required for the destructive side of the policy. Reads and
+  # writes are permitted without MFA so the team can drive scripted
+  # backfills; the federation rollout will tighten this later.
+
+  DataOpsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvName}-data-ops
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: data-ops-permissions
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: DataOpsReadWrite
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:PutObject
+                  - rds:Describe*
+                  - rds:ListTagsForResource
+                Resource: "*"
+              - Sid: DataOpsDestructiveRequiresMfa
+                Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                  - s3:DeleteBucket
+                  - rds:DeleteDBInstance
+                  - rds:DeleteDBSnapshot
+                Resource: "*"
+                Condition:
+                  Bool:
+                    aws:MultiFactorAuthPresent: "true"
+
+  # --- CI deploy user (DELIBERATE GAP: long-lived access key) -------------
+  # Used by the legacy Jenkins pipeline that still pushes Terraform plans
+  # for this account. Being migrated to GitHub Actions OIDC in Q2; keep
+  # around until that ships, then delete. KSI-IAM-SNU surfaces this as
+  # not-implemented (programmatic credential without rotation).
+
+  CiDeployUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub ${EnvName}-ci-deploy
+      Tags:
+        - Key: Purpose
+          Value: ci-deploy
+        - Key: Owner
+          Value: platform-team
+
+  CiDeployAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref CiDeployUser
+      Status: Active
+
+  CiDeployPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${EnvName}-ci-deploy
+      Users:
+        - !Ref CiDeployUser
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TerraformPlanApply
+            Effect: Allow
+            Action:
+              - ec2:*
+              - ecs:*
+              - rds:Describe*
+              - s3:*
+              - iam:Get*
+              - iam:List*
+              - iam:PassRole
+              - logs:Describe*
+              - cloudformation:Describe*
+            Resource: "*"
+
+  # --- Legacy break-glass role (DELIBERATE GAP: AdministratorAccess) ------
+  # Stood up before the platform_admin / readonly_auditor split, when the
+  # pre-FedRAMP admin model was a single role with AdministratorAccess.
+  # Keeping it for emergency operations during the migration window;
+  # tracked for removal in PLAT-2104. KSI-IAM-ELP surfaces this as a
+  # least-privilege gap.
+
+  LegacyBreakGlassRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvName}-legacy-break-glass
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action: sts:AssumeRole
+            Condition:
+              Bool:
+                aws:MultiFactorAuthPresent: "true"
+      ManagedPolicyArns:
+        # Hardcoded arn:aws: rather than arn:${AWS::Partition}: for
+        # parser compatibility with the existing TF-side gap labeling.
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      Tags:
+        - Key: Purpose
+          Value: legacy-break-glass
+        - Key: Owner
+          Value: platform-team
+        - Key: Note
+          Value: "Migration-tracked: PLAT-2104"
+
+  # --- Flow-logs publishing role ------------------------------------------
+
+  FlowLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvName}-flow-logs
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: write-flow-logs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: "*"
+
+  # --- Backup-service role ------------------------------------------------
+
+  BackupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvName}-backup
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: backup.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+
+Outputs:
+  EcsTaskExecutionRoleArn:
+    Value: !GetAtt EcsTaskExecutionRole.Arn
+    Export:
+      Name: !Sub ${EnvName}-ecs-task-execution-role-arn
+
+  AppTaskRoleArn:
+    Value: !GetAtt AppTaskRole.Arn
+    Export:
+      Name: !Sub ${EnvName}-app-task-role-arn
+
+  BastionInstanceProfileName:
+    Value: !Ref BastionInstanceProfile
+    Export:
+      Name: !Sub ${EnvName}-bastion-instance-profile
+
+  FlowLogsRoleArn:
+    Value: !GetAtt FlowLogsRole.Arn
+    Export:
+      Name: !Sub ${EnvName}-flow-logs-role-arn
+
+  BackupRoleArn:
+    Value: !GetAtt BackupRole.Arn
+    Export:
+      Name: !Sub ${EnvName}-backup-role-arn

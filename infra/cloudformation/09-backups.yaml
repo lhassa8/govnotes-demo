@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Govnotes FedRAMP boundary — AWS Backup vault + plan + selection.
+  Mirrors infra/terraform/backups.tf — daily 35-day + weekly 90-day
+  retention rules, primary app DB selected for backup.
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: govnotes-fedramp-prod
+
+Resources:
+  # --- Backup vault (KMS-encrypted with the app CMK) ----------------------
+
+  MainVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Sub ${EnvName}-vault
+      EncryptionKeyArn: !ImportValue
+        Fn::Sub: ${EnvName}-app-cmk-arn
+      BackupVaultTags:
+        Name: !Sub ${EnvName}-vault
+
+  # --- Backup plan (daily-35d + weekly-90d) -------------------------------
+
+  MainPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub ${EnvName}-plan
+        BackupPlanRule:
+          - RuleName: daily-35d
+            TargetBackupVault: !Ref MainVault
+            ScheduleExpression: cron(0 5 ? * * *)
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+            Lifecycle:
+              DeleteAfterDays: 35
+          - RuleName: weekly-90d
+            TargetBackupVault: !Ref MainVault
+            ScheduleExpression: cron(0 6 ? * SUN *)
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 360
+            Lifecycle:
+              MoveToColdStorageAfterDays: 30
+              DeleteAfterDays: 90
+      BackupPlanTags:
+        Name: !Sub ${EnvName}-plan
+
+  # --- Backup selection (primary app DB) ----------------------------------
+
+  AppDbSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref MainPlan
+      BackupSelection:
+        SelectionName: !Sub ${EnvName}-app-db
+        IamRoleArn: !ImportValue
+          Fn::Sub: ${EnvName}-backup-role-arn
+        Resources:
+          - !ImportValue
+            Fn::Sub: ${EnvName}-app-db-arn
