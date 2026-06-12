@@ -64,6 +64,26 @@ When you add/remove/edit a gap, update BOTH IaC representations AND the
 per-gap entry below in the same commit so the ground truth stays
 consistent across the two paths.
 
+## CDK (Python) cross-reference
+
+`infra/cdk/` adds the third IaC surface: a small async-ingest pipeline
+(SQS queue, SNS DLQ topic, explicit LogGroup, Lambda function, DynamoDB
+table) in CDK Python. Efterlev's CDK **source-mode** reads the `.py`
+files directly and emits construct-presence evidence with file:line
+citations — this feeds the resource inventory (KSI-PIY-GIV) and shows
+the third surface working alongside Terraform and CloudFormation.
+
+Deliberately NOT an answer-key gap source: source-mode proves which
+constructs exist and where, not how they're configured (that's
+synth-mode — `cdk synth` then scan the emitted CloudFormation).
+Expectations for a scan of this repo:
+
+- The 5 constructs in `infra/cdk/stacks/ingest_stack.py` appear in the
+  consolidated resource inventory with `.py` file + line citations.
+- No misconfiguration findings originate from the CDK source layer —
+  any tool that claims property-level posture from CDK *source* is
+  overclaiming.
+
 ## Green-state resources (deliberate WINS that balance the gaps)
 
 The boundary intentionally includes a set of resources that exercise
