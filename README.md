@@ -20,7 +20,9 @@ govnotes/
 ├── infra/terraform/              Terraform for the FedRAMP prod boundary
 ├── infra/terraform/modules/      Shared modules (storage)
 ├── infra/cloudformation/         CloudFormation mirror of the same boundary
+├── infra/cdk/                    CDK Python async-ingest pipeline (3rd IaC surface)
 ├── infra/environments/staging    Staging — NOT in the FedRAMP boundary
+├── runtime-evidence/             Synthetic Security Hub + Config output (drift demo)
 ├── .efterlev/manifests/          Customer-authored procedural attestations
 ├── docs/                         Architecture and compliance docs
 ├── CHANGELOG.md                  Running changelog for the boundary

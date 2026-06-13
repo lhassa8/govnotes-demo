@@ -1,0 +1,46 @@
+{
+  "EvaluationResults": [
+    {
+      "EvaluationResultIdentifier": {
+        "EvaluationResultQualifier": {
+          "ConfigRuleName": "s3-bucket-public-read-prohibited",
+          "ResourceType": "AWS::S3::Bucket",
+          "ResourceId": "govnotes-app-uploads"
+        },
+        "OrderingTimestamp": "2026-06-10T07:00:00.000Z"
+      },
+      "ComplianceType": "NON_COMPLIANT",
+      "ResultRecordedTime": "2026-06-10T07:30:00.000Z",
+      "ConfigRuleInvokedTime": "2026-06-10T07:15:00.000Z",
+      "Annotation": "Bucket govnotes-app-uploads allows public read via ACL. Corroborates the Security Hub S3.1 finding \u2014 second independent runtime source for deliberate gap #28 (IaC-vs-reality drift)."
+    },
+    {
+      "EvaluationResultIdentifier": {
+        "EvaluationResultQualifier": {
+          "ConfigRuleName": "cloudtrail-enabled",
+          "ResourceType": "AWS::::Account",
+          "ResourceId": "222233334444"
+        },
+        "OrderingTimestamp": "2026-06-10T07:00:00.000Z"
+      },
+      "ComplianceType": "COMPLIANT",
+      "ResultRecordedTime": "2026-06-10T07:30:00.000Z",
+      "ConfigRuleInvokedTime": "2026-06-10T07:15:00.000Z",
+      "Annotation": "CloudTrail govnotes-main active and logging. Agreement case."
+    },
+    {
+      "EvaluationResultIdentifier": {
+        "EvaluationResultQualifier": {
+          "ConfigRuleName": "iam-root-access-key-check",
+          "ResourceType": "AWS::::Account",
+          "ResourceId": "222233334444"
+        },
+        "OrderingTimestamp": "2026-06-10T07:00:00.000Z"
+      },
+      "ComplianceType": "COMPLIANT",
+      "ResultRecordedTime": "2026-06-10T07:30:00.000Z",
+      "ConfigRuleInvokedTime": "2026-06-10T07:15:00.000Z",
+      "Annotation": "No root access keys exist. Account-layer posture only runtime evidence can show."
+    }
+  ]
+}

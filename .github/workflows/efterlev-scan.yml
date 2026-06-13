@@ -17,6 +17,9 @@ on:
     branches: [main]
     paths:
       - 'infra/terraform/**'
+      - 'infra/cloudformation/**'
+      - 'infra/cdk/**'
+      - 'runtime-evidence/**'
       - '.github/workflows/**'
       - '.efterlev/manifests/**'
   pull_request:
@@ -24,6 +27,9 @@ on:
     # from workflows triggered by forks, which is what we want.
     paths:
       - 'infra/terraform/**'
+      - 'infra/cloudformation/**'
+      - 'infra/cdk/**'
+      - 'runtime-evidence/**'
       - '.github/workflows/**'
       - '.efterlev/manifests/**'
   workflow_dispatch:
@@ -85,6 +91,15 @@ jobs:
           efterlev boundary set --target . \
             --include 'infra/terraform/**' \
             --exclude 'infra/terraform/dev_sandbox/**'
+
+      - name: import runtime evidence (Security Hub + Config)
+        # Synthetic runtime-tool output (see runtime-evidence/README.md).
+        # Imports BEFORE report run so the Gap Agent reasons over IaC and
+        # runtime evidence together — including deliberate gap #28, where
+        # they deliberately disagree (IaC-vs-reality drift).
+        run: |
+          efterlev import-security-hub runtime-evidence/security-hub-findings.json --target .
+          efterlev import-config runtime-evidence/config-evaluations.json --target .
 
       - name: efterlev doctor
         # Pre-flight diagnostics — Python, workspace, FRMR cache,

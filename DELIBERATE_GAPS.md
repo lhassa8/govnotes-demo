@@ -442,6 +442,29 @@ based on that evidence.
 
 ---
 
+### 28. IaC-vs-runtime drift on `app_uploads` public access
+
+- **Files:** `infra/terraform/s3.tf` (the IaC intent) +
+  `runtime-evidence/security-hub-findings.json` and
+  `runtime-evidence/config-evaluations.json` (the runtime reality).
+- **Classification:** Drift — IaC and runtime evidence DISAGREE.
+- **What it demonstrates:** `aws_s3_bucket_public_access_block.app_uploads`
+  declares the bucket protected, but the (synthetic) Security Hub S3.1
+  finding and the Config `s3-bucket-public-read-prohibited` evaluation
+  both report `govnotes-app-uploads` publicly readable — an ACL grant
+  added outside Terraform. Static config-as-evidence shows intent;
+  runtime findings show reality; the drift itself is the finding. This
+  is the persistent-validation posture FedRAMP 20x is moving toward —
+  a scanner that only reads IaC would report this control green.
+- **Expected behavior:** after `efterlev import-security-hub` +
+  `import-config`, the KSI(s) carrying the S3.1 / public-read mappings
+  show BOTH the in-repo IaC evidence and the contradicting runtime
+  evidence; a reviewer (or the Gap Agent) should surface the
+  contradiction rather than let either source win silently.
+- **Bonus account-layer case:** the IAM.6 finding (no hardware root
+  MFA) has NO IaC counterpart at all — account-level posture only
+  runtime evidence can show.
+
 ## Coverage gaps — capability surfaces not yet built out
 
 The gaps above are misconfigurations on resources that exist. The gaps
@@ -927,6 +950,7 @@ were under-exercised.
 | 25 | KSI-SVC-VRI, KSI-SVC-PRR, KSI-CNA-MAT | Partially implemented | s3.tf | 6 buckets, mixed encryption / public-block / versioning posture | Medium |
 | 26 | KSI-MLA-LET | Partially implemented | logging.tf | 4 log groups, mixed retention + KMS posture | Medium |
 | 27 | (out of boundary) | — | dev_sandbox/main.tf | `dev_scratch` RDS + S3 — boundary excludes the subtree | N/A |
+| 28 | (drift) | IaC green / runtime FAILED | s3.tf + runtime-evidence/* | `app_uploads` public-access drift; root-MFA account-layer case | High |
 
 Showcase finding for the remediation demo: gap #1 (`user_uploads`
 missing encryption). The fix is a one-line addition to the storage

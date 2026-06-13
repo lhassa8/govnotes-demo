@@ -1,0 +1,109 @@
+{
+  "Findings": [
+    {
+      "SchemaVersion": "2018-10-08",
+      "Id": "arn:aws:securityhub:us-east-1:222233334444:subscription/aws-foundational-security-best-practices/v/1.0.0/S3.1/finding/aaaa1111-2222-3333-4444-555566667777",
+      "ProductArn": "arn:aws:securityhub:us-east-1::product/aws/securityhub",
+      "ProductName": "Security Hub",
+      "CompanyName": "AWS",
+      "Region": "us-east-1",
+      "GeneratorId": "aws-foundational-security-best-practices/v/1.0.0/S3.1",
+      "AwsAccountId": "222233334444",
+      "Types": [
+        "Software and Configuration Checks/Industry and Regulatory Standards/AWS-Foundational-Security-Best-Practices"
+      ],
+      "FirstObservedAt": "2026-06-01T08:00:00.000Z",
+      "UpdatedAt": "2026-06-10T08:00:00.000Z",
+      "Severity": {
+        "Label": "HIGH",
+        "Normalized": 70
+      },
+      "Title": "S3.1 S3 Block Public Access setting should be enabled",
+      "Description": "DRIFT CASE (deliberate gap #28): infra/terraform/s3.tf declares aws_s3_bucket_public_access_block.app_uploads, but the live bucket govnotes-app-uploads reports public-read via ACL grant added outside Terraform on 2026-06-08. IaC intent and runtime reality disagree.",
+      "Resources": [
+        {
+          "Type": "AwsS3Bucket",
+          "Id": "arn:aws:s3:::govnotes-app-uploads",
+          "Region": "us-east-1"
+        }
+      ],
+      "Compliance": {
+        "Status": "FAILED"
+      },
+      "Workflow": {
+        "Status": "NEW"
+      },
+      "RecordState": "ACTIVE"
+    },
+    {
+      "SchemaVersion": "2018-10-08",
+      "Id": "arn:aws:securityhub:us-east-1:222233334444:subscription/aws-foundational-security-best-practices/v/1.0.0/CloudTrail.1/finding/bbbb1111-2222-3333-4444-555566667777",
+      "ProductArn": "arn:aws:securityhub:us-east-1::product/aws/securityhub",
+      "ProductName": "Security Hub",
+      "CompanyName": "AWS",
+      "Region": "us-east-1",
+      "GeneratorId": "aws-foundational-security-best-practices/v/1.0.0/CloudTrail.1",
+      "AwsAccountId": "222233334444",
+      "Types": [
+        "Software and Configuration Checks/Industry and Regulatory Standards/AWS-Foundational-Security-Best-Practices"
+      ],
+      "FirstObservedAt": "2026-06-01T08:00:00.000Z",
+      "UpdatedAt": "2026-06-10T08:00:00.000Z",
+      "Severity": {
+        "Label": "INFORMATIONAL",
+        "Normalized": 0
+      },
+      "Title": "CloudTrail.1 CloudTrail should be enabled and configured with at least one multi-Region trail",
+      "Description": "Runtime confirmation of the IaC posture: aws_cloudtrail.main (infra/terraform/logging.tf) is live and multi-region. Agreement case \u2014 runtime corroborates intent.",
+      "Resources": [
+        {
+          "Type": "AwsCloudTrailTrail",
+          "Id": "arn:aws:cloudtrail:us-east-1:222233334444:trail/govnotes-main",
+          "Region": "us-east-1"
+        }
+      ],
+      "Compliance": {
+        "Status": "PASSED"
+      },
+      "Workflow": {
+        "Status": "RESOLVED"
+      },
+      "RecordState": "ACTIVE"
+    },
+    {
+      "SchemaVersion": "2018-10-08",
+      "Id": "arn:aws:securityhub:us-east-1:222233334444:subscription/aws-foundational-security-best-practices/v/1.0.0/IAM.6/finding/cccc1111-2222-3333-4444-555566667777",
+      "ProductArn": "arn:aws:securityhub:us-east-1::product/aws/securityhub",
+      "ProductName": "Security Hub",
+      "CompanyName": "AWS",
+      "Region": "us-east-1",
+      "GeneratorId": "aws-foundational-security-best-practices/v/1.0.0/IAM.6",
+      "AwsAccountId": "222233334444",
+      "Types": [
+        "Software and Configuration Checks/Industry and Regulatory Standards/AWS-Foundational-Security-Best-Practices"
+      ],
+      "FirstObservedAt": "2026-06-01T08:00:00.000Z",
+      "UpdatedAt": "2026-06-10T08:00:00.000Z",
+      "Severity": {
+        "Label": "CRITICAL",
+        "Normalized": 90
+      },
+      "Title": "IAM.6 Hardware MFA should be enabled for the root user",
+      "Description": "Root user has no hardware MFA. Account-level posture invisible to IaC scanning by design \u2014 runtime evidence is the ONLY way this surfaces (deliberate gap #7/#8 family, account layer).",
+      "Resources": [
+        {
+          "Type": "AwsAccount",
+          "Id": "AWS::::Account:222233334444",
+          "Region": "us-east-1"
+        }
+      ],
+      "Compliance": {
+        "Status": "FAILED"
+      },
+      "Workflow": {
+        "Status": "NEW"
+      },
+      "RecordState": "ACTIVE"
+    }
+  ]
+}
