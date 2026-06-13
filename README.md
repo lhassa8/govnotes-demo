@@ -7,8 +7,8 @@ of the Govnotes platform.
 
 This boundary runs in a dedicated AWS account, separate from the commercial
 production environment that serves our SaaS customers today. The code here
-is in active development as part of our FedRAMP Moderate authorization
-effort, which we are pursuing via the **FedRAMP 20x** pathway. We are
+is in active development as part of our FedRAMP 20x Class C (Moderate)
+authorization effort, pursued via the **FedRAMP 20x** pathway. We are
 building evidence toward the 20x Key Security Indicators (KSIs) and
 expect to enter 3PAO assessment in Q1 2027.
 
